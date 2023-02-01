@@ -1,0 +1,5 @@
+pandas
+slack-sdk
+mysql-connector-python
+python-dotenv
+SQLAlchemy==1.4.16
