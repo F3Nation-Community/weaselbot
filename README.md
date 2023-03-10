@@ -90,6 +90,9 @@ You can add manual achievements in your region for things like "run a 5k" or "co
 1. Add records to your `achievements_list` table (follow the [PAXMiner instructions for using DBeaver](https://f3stlouis.com/paxminer-setup/) or something similar). You will need to specificy the achievement's name, a description (for trophy cases, etc), a "verb" (essentially just the description in verb form) and a code to uniquely identify the achievement
 2. **Important:** achievement codes cannot contain spaces - use underscores ( _ ) in their place
 3. To tag guys for manual achievements, create a backblast. In the body of the backblast, create a separate line that says "Achievement: CODE_HERE", substituting in your manual achievement's code. See below for an example
+
+<img src="https://raw.githubusercontent.com/evanpetzoldt/weaselbot/master/readme_media/example-manual-achievement.png" width="500" />
+
 4. **Note 1:** If you forget to add the "Achievement: " line or give the wrong code, PAXMiner will likely have already imported it if you try to edit the post. It's important to note that PAXMiner **does not update the backblast text in the database** if you edit a post, so you can't add in the manual achievement that way. The best way to handle is to edit the backblast in your PAXMiner data manually
 5. **Note 2:** Posts with manual achievements will normally be counted as a beatdown for purposes of the automatic achievements. If you **don't** want it to, you can post the backblast in your `#achievement-unlocked` channel and WeaselBot will know not to include them
 
