@@ -2,11 +2,11 @@
 
 A supplemental tool for [F3 regions](https://f3nation.com/) to get more out of their data! Weaselbot is a Slack bot designed to get the PAX in your region more engaged, here's what he can do:
 
-- **Achievements:** Incorporate automated "achievements" that are awarded based on F3 activity
+- [Achievements](#achievements): Incorporate automated "achievements" that are awarded based on F3 activity
 
 <img src="https://raw.githubusercontent.com/evanpetzoldt/weaselbot/master/readme_media/achievement-screenshot.png" width="300" />
 
-- **Kotter Reports:** Detect when guys are starting to fall off the F3 wagon and send a notice to your site Qs
+- [Kotter Reports](#kotter-reports): Detect when guys are starting to fall off the F3 wagon and send a notice to your site Qs
 
 <img src="https://raw.githubusercontent.com/evanpetzoldt/weaselbot/master/readme_media/kotter-report.png" width="300" />
 
