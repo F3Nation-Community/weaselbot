@@ -73,7 +73,7 @@ for region_index, region_row in df_regions.iterrows():
     with engine.connect() as conn:
         df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=['date'])
         achievement_list = pd.read_sql_table(table_name="achievements_list", schema=db, con=conn)
-        awarded_table = pd.read_sql_query(sql=awarded_view, con=conn, parse_dates=['date_awarded'])
+        awarded_table_raw = pd.read_sql_query(sql=awarded_view, con=conn, parse_dates=['date_awarded'])
         
         paxminer_log_channel = conn.execute(f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';").fetchone()[0]
 
@@ -344,7 +344,7 @@ for region_index, region_row in df_regions.iterrows():
     pax_view = pd.merge(pax_view, man_achievement_df, on=['pax_id'], how='left')
 
     # Reshape awarded table and merge
-    awarded_table = awarded_table.pivot(index='pax_id', columns='code', values='date_awarded').reset_index()
+    awarded_table = awarded_table_raw.pivot(index='pax_id', columns='code', values='date_awarded').reset_index()
     awarded_table.set_index('pax_id', inplace=True)
     # awarded_table.columns = [x + '_awarded' for x in awarded_table.columns]
     pax_view = pd.merge(pax_view, awarded_table, how='left', on='pax_id', suffixes=("", "_awarded"))
@@ -368,7 +368,7 @@ for region_index, region_row in df_regions.iterrows():
             for pax_index, pax_row in new_awards.iterrows():
                 # mark off in the awarded table as awarded for that PAX
                 awards_add.loc[len(awards_add.index)] = [pax_row['pax_id'], row['id'], date.today()]
-                achievements_to_date = len(awarded_table[awarded_table.index==pax_row['pax_id']]) + len(awards_add[awards_add['pax_id']==pax_row['pax_id']])
+                achievements_to_date = len(awarded_table_raw[awarded_table_raw['pax_id']==pax_row['pax_id']]) + len(awards_add[awards_add['pax_id']==pax_row['pax_id']])
                 
                 # send to slack channel
                 sMessage = f"Congrats to our man <@{pax_row['pax_id']}>! He just unlocked the achievement *{row['name']}* for {row['verb']}. This is achievement #{achievements_to_date} for <@{pax_row['pax_id']}> this year. Keep up the good work!"
@@ -391,4 +391,4 @@ for region_index, region_row in df_regions.iterrows():
         slack_client.conversations_join(channel=paxminer_log_channel)
         response = slack_client.chat_postMessage(channel=paxminer_log_channel, text=f'Patch program run for the day, {len(awards_add)} awards tagged')
     
-    print("All done!")
+    print(f"All done, {len(awards_add)} awards tagged!")

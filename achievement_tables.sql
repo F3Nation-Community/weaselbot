@@ -35,6 +35,8 @@ INSERT INTO DB_SCHEMA.achievements_list (name, description, verb, code) VALUES('
 INSERT INTO DB_SCHEMA.achievements_list (name, description, verb, code) VALUES('6 pack', 'Post at 6 beatdowns in a week', 'posting at 6 beatdowns in a week', '6_pack');
 INSERT INTO DB_SCHEMA.achievements_list (name, description, verb, code) VALUES('Holding Down the Fort', 'Post 50 times at an AO', 'posting 50 times at an AO', 'holding_down_the_fort');
 
+ALTER TABLE DB_SCHEMA.aos ADD site_q_user_id varchar(45) NULL;
+
 -- manual achievements... I took out most of ours but here are some examples
 -- regions could add their own manual achievements by adding to this table
 -- INSERT INTO f3stcharles.achievements_list (name, description, verb, code) VALUES('You ain''t Cheatin'', you ain’t Tryin''', 'Complete a GrowRuck', 'completing a GrowRuck', 'you_aint_cheatin_you_aint_tryin');
