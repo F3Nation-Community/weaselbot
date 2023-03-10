@@ -1,6 +1,6 @@
-# Weaselbot
+# WeaselBot
 
-A supplemental tool for [F3 regions](https://f3nation.com/) to get more out of their data! Weaselbot is a Slack bot designed to get the PAX in your region more engaged, here's what he can do:
+A supplemental tool for [F3 regions](https://f3nation.com/) to get more out of their data! WeaselBot is a Slack bot designed to get the PAX in your region more engaged, here's what he can do:
 
 - [Achievements](#achievements): Incorporate automated "achievements" that are awarded based on F3 activity
 
@@ -16,7 +16,7 @@ Please note - the first two features rely on data from [PAXMiner](https://f3stlo
 
 ## Primary Setup
 
-You will be creating the structure for Weaselbot, but I will run it from my end (similar to PAXMiner). There are some steps you need to take to set it up, and then some information I will need from you to add your instance to my daily runs.
+You will be creating the structure for WeaselBot, but I will run it from my end (similar to PAXMiner). There are some steps you need to take to set it up, and then some information I will need from you to add your instance to my daily runs.
 
 ### App setup
 
@@ -69,15 +69,15 @@ settings:
 
 ## Achievements
 
-If enabled, Weaselbot will pull your PAXMiner data daily to see if any of your PAX have crossed certain activity thresholds. If they have, and if they haven't already been awarded them (as per the `achievements_awarded` table), Weaselbot will give them a shout-out in your `#achievement-unlocked` channel and add the award to your `achievements_awarded` table. This table in turn drives the `achievements_view` view, which you can use in your region's dashboard / reporting for a cool "trophy case".
+If enabled, WeaselBot will pull your PAXMiner data daily to see if any of your PAX have crossed certain activity thresholds. If they have, and if they haven't already been awarded them (as per the `achievements_awarded` table), WeaselBot will give them a shout-out in your `#achievement-unlocked` channel and add the award to your `achievements_awarded` table. This table in turn drives the `achievements_view` view, which you can use in your region's dashboard / reporting for a cool "trophy case".
 
 ### Things to know / best practices
 
-1. Weaselbot doesn't know what he doesn't know... If a tree falls in the woods (a backblast was not created or created incorrectly, guys not tagged etc), he doesn't know about it :) While I'm happy to investigate issues with Weaselbot, I won't be able to support every region's request of "why didn't this guy get this achievement?", as 99% of the time it's likely a data entry error
-2. Weaselbot works retroactively, pulling the full year's data every run. This means you could create / fix a backblast from a month ago and it would still be reflected. It also means that you could start using Weaselbot in the middle of the year, and he would award all achievements that should have been earned to date
-3. By default, your region will have access to a dozen or so **automatic** achievements. These are achievements that Weaselbot will award on its own based on the paxminer data. If there's an achievement you don't like, you can simply delete it from your region's new `achievements_list` table
-4. There is also functionality for **manual** achievements. These are achievements that you have to explicitly "tell" Weaselbot about. More info on that below
-5. There are achievements that are specific to different types of activity. For example, if you track QSource events and attendance, there are achievements specific to that. The best way to have Weaselbot differentiate between your activity types is to name your backblast channels in the following way:
+1. WeaselBot doesn't know what he doesn't know... If a tree falls in the woods (a backblast was not created or created incorrectly, guys not tagged etc), he doesn't know about it :) While I'm happy to investigate issues with WeaselBot, I won't be able to support every region's request of "why didn't this guy get this achievement?", as 99% of the time it's likely a data entry error
+2. WeaselBot works retroactively, pulling the full year's data every run. This means you could create / fix a backblast from a month ago and it would still be reflected. It also means that you could start using WeaselBot in the middle of the year, and he would award all achievements that should have been earned to date
+3. By default, your region will have access to a dozen or so **automatic** achievements. These are achievements that WeaselBot will award on its own based on the paxminer data. If there's an achievement you don't like, you can simply delete it from your region's new `achievements_list` table
+4. There is also functionality for **manual** achievements. These are achievements that you have to explicitly "tell" WeaselBot about. More info on that below
+5. There are achievements that are specific to different types of activity. For example, if you track QSource events and attendance, there are achievements specific to that. The best way to have WeaselBot differentiate between your activity types is to name your backblast channels in the following way:
     * QSource: `#qsource`
     * Blackops (non-scheduled beatdowns): `#blackops`
     * Rucking: `#rucking`
@@ -91,13 +91,13 @@ You can add manual achievements in your region for things like "run a 5k" or "co
 2. **Important:** achievement codes cannot contain spaces - use underscores ( _ ) in their place
 3. To tag guys for manual achievements, create a backblast. In the body of the backblast, create a separate line that says "Achievement: CODE_HERE", substituting in your manual achievement's code. See below for an example
 4. **Note 1:** If you forget to add the "Achievement: " line or give the wrong code, PAXMiner will likely have already imported it if you try to edit the post. It's important to note that PAXMiner **does not update the backblast text in the database** if you edit a post, so you can't add in the manual achievement that way. The best way to handle is to edit the backblast in your PAXMiner data manually
-5. **Note 2:** Posts with manual achievements will normally be counted as a beatdown for purposes of the automatic achievements. If you **don't** want it to, you can post the backblast in your `#achievement-unlocked` channel and Weaselbot will know not to include them
+5. **Note 2:** Posts with manual achievements will normally be counted as a beatdown for purposes of the automatic achievements. If you **don't** want it to, you can post the backblast in your `#achievement-unlocked` channel and WeaselBot will know not to include them
 
 ## Kotter reports
 
-If enabled, once a week Weaselbot will check your PAXMiner data and see if any of your PAX have hit certain thresholds of inactivity - right now, that is set at 2 weeks of not having posted anywhere, but less than 4 weeks of not having posted anywhere (to prevent Weaselbot from including them for the rest of time). PAX are also tracked based on their last Q, and guys without Qs or a long time since will be included on the report.
+If enabled, once a week WeaselBot will check your PAXMiner data and see if any of your PAX have hit certain thresholds of inactivity - right now, that is set at 2 weeks of not having posted anywhere, but less than 4 weeks of not having posted anywhere (to prevent WeaselBot from including them for the rest of time). PAX are also tracked based on their last Q, and guys without Qs or a long time since will be included on the report.
 
-Weaselbot compiles this list, then sends reports out. At a minimum, the full list will be sent to a user you specify. If desired, the list can also be aggregated by those PAX "home AO", as determined by their recent posting history. If you specify your Site Qs, those lists will be sent to them according to their AO.
+WeaselBot compiles this list, then sends reports out. At a minimum, the full list will be sent to a user you specify. If desired, the list can also be aggregated by those PAX "home AO", as determined by their recent posting history. If you specify your Site Qs, those lists will be sent to them according to their AO.
 
 ### Setup
 
