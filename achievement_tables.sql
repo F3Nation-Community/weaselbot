@@ -45,3 +45,18 @@ ALTER TABLE DB_SCHEMA.aos ADD site_q_user_id varchar(45) NULL;
 -- INSERT INTO f3stcharles.achievements_list (name, description, verb, code) VALUES('In This Together', 'Participate in a shieldlock', 'participating in a shieldlock', 'in_this_together');
 -- INSERT INTO f3stcharles.achievements_list (name, description, verb, code) VALUES('Sleeper Hold', 'EH and VQ 2 FNGs', 'EHing and VQing 2 FNGs', 'sleeper_hold');
 -- INSERT INTO f3stcharles.achievements_list (name, description, verb, code) VALUES('Leave no Man Behind', 'EH 5 FNGs', 'EHing 5 FNGs', 'leave_no_man_behind');
+
+CREATE OR REPLACE
+ALGORITHM = UNDEFINED VIEW `DB_SCHEMA`.`achievements_view` AS
+select
+    `u`.`user_name` AS `pax`,
+    `u`.`user_id` AS `pax_id`,
+    `al`.`name` AS `name`,
+    `al`.`description` AS `description`,
+    `aa`.`date_awarded` AS `date_awarded`
+from
+    ((`DB_SCHEMA`.`users` `u`
+join `DB_SCHEMA`.`achievements_awarded` `aa` on
+    ((`u`.`user_id` = `aa`.`pax_id`)))
+join `DB_SCHEMA`.`achievements_list` `al` on
+    ((`aa`.`achievement_id` = `al`.`id`)));
