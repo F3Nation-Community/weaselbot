@@ -34,7 +34,7 @@ with engine.connect() as conn:
     )
 
 # Loop through regions
-for region_index, region_row in df_regions.iterrows():
+for region_index, region_row in df_regions[df_regions["paxminer_schema"] == "f3washmo"].iterrows():
     db = region_row["paxminer_schema"]
     slack_secret = region_row["slack_token"]
     achievement_channel = region_row["achievement_channel"]
@@ -43,25 +43,28 @@ for region_index, region_row in df_regions.iterrows():
 
     # Pull region data
     sql_select = f"""-- sql
-    SELECT bd.user_id AS pax_id,
-        u.user_name AS pax,
-        bd.ao_id AS ao_id,
-        a.ao,
-        bd.date,
-        YEAR(bd.date) AS year_num,
-        MONTH(bd.date) AS month_num,
-        WEEK(bd.date) AS week_num,
-        CASE WHEN bd.user_id = bd.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag,
+    SELECT u2.user_id AS pax_id,
+        u2.user_name AS pax,
+        a.ao_id AS ao_id,
+        a.ao_name as ao,
+        b.bd_date AS date,
+        YEAR(b.bd_date) AS year_num,
+        MONTH(b.bd_date) AS month_num,
+        WEEK(b.bd_date) AS week_num,
+        DAY(b.bd_date) AS day_num,
+        CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag,
         b.backblast
-    FROM {db}.bd_attendance bd
-    INNER JOIN {db}.users u
+    FROM weaselbot.combined_attendance bd
+    INNER JOIN weaselbot.combined_users u
     ON bd.user_id = u.user_id
-    INNER JOIN {db}.aos a
+    INNER JOIN weaselbot.combined_aos a
     ON bd.ao_id = a.channel_id
-    INNER JOIN {db}.beatdowns b
+    INNER JOIN weaselbot.combined_beatdowns b
     ON bd.ao_id = b.ao_id
         AND bd.date = b.bd_date
         AND bd.q_user_id = b.q_user_id
+    INNER JOIN {db}.users u2
+    ON u.email = u2.email
     WHERE YEAR(bd.date) = {year_select}
     ;
     """
