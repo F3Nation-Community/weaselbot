@@ -12,6 +12,6 @@ setup(
     description="WeaselBot is a Slack bot designed for F3 to get the PAX in your region more engaged",
     url="https://github.com/evanpetzoldt/weaselbot",
     packages=find_packages(),
-    python_requires=">=3.10",
+    python_requires=">=3.8",
     install_requires=parse_requirements("requirements.txt"),
 )
