@@ -1,7 +1,8 @@
+###!/mnt/nas/ml/f3-analytics/env/bin/python
+
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
-import mysql.connector
 from dotenv import load_dotenv
 import os
 import math
@@ -11,29 +12,25 @@ engine = create_engine(
     f"mysql+mysqlconnector://{os.environ.get('DATABASE_USER')}:{os.environ.get('DATABASE_PASSWORD')}@{os.environ.get('DATABASE_HOST')}:3306"
 )
 
-paxminer_region_sql = f"""-- sql
+paxminer_region_sql = """-- sql
 SELECT r.schema_name, r.region AS region_name, b.max_timestamp AS max_timestamp, b.max_ts_edited AS max_ts_edited, b.beatdown_count AS beatdown_count, cr.region_id AS region_id
 FROM paxminer.regions r
 LEFT JOIN weaselbot.combined_regions cr ON r.schema_name = cr.schema_name
 LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b ON cr.region_id = b.region_id;
 """
-weaselbot_region_sql = f"""-- sql
+weaselbot_region_sql = """-- sql
 SELECT w.*, b.beatdown_count AS beatdown_count
 FROM weaselbot.combined_regions w
 LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b
 ON w.region_id = b.region_id;
 """
-region_insert_sql = f"INSERT INTO weaselbot.combined_regions (schema_name, region_name, max_timestamp, max_ts_edited) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE region_name = VALUES(region_name), max_timestamp = VALUES(max_timestamp), max_ts_edited = VALUES(max_ts_edited);"
+region_insert_sql = "INSERT INTO weaselbot.combined_regions (schema_name, region_name, max_timestamp, max_ts_edited) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE region_name = VALUES(region_name), max_timestamp = VALUES(max_timestamp), max_ts_edited = VALUES(max_ts_edited);"
 
 
 with engine.connect() as conn:
     df_regions = pd.read_sql(paxminer_region_sql, conn)
-    values = df_regions[
-        ["schema_name", "region_name", "max_timestamp", "max_ts_edited"]
-    ].values.tolist()
-    inserted_data = [
-        [None if pd.isnull(value) else value for value in sublist] for sublist in values
-    ]
+    values = df_regions[["schema_name", "region_name", "max_timestamp", "max_ts_edited"]].values.tolist()
+    inserted_data = [[None if pd.isnull(value) else value for value in sublist] for sublist in values]
     conn.execute(
         region_insert_sql,
         inserted_data,
@@ -54,19 +51,17 @@ for region_index, region_row in df_regions.iterrows():
     user_sql = f"SELECT user_id AS slack_user_id, user_name, email, {region_id} AS region_id FROM {db}.users;"
     aos_sql = f"SELECT channel_id as slack_channel_id, ao as ao_name, {region_id} AS region_id FROM {db}.aos;"
 
-    beatdowns_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited FROM {db}.beatdowns WHERE timestamp > {region_row['max_timestamp']} OR ts_edited > {region_row['max_ts_edited']};"
-    attendance_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id FROM {db}.bd_attendance WHERE timestamp > {region_row['max_timestamp']} OR ts_edited > {region_row['max_ts_edited']};"
-    beatdowns_no_ts_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited FROM {db}.beatdowns;"  # AND timestamp > {region_row['max_timestamp'] or 0};"
-    attendance_no_ts_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id FROM {db}.bd_attendance;"  # AND timestamp > {region_row['max_timestamp'] or 0};"
-    beatdowns_no_ed_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited FROM {db}.beatdowns WHERE timestamp > {region_row['max_timestamp']};"
-    attendance_no_ed_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id FROM {db}.bd_attendance WHERE timestamp > {region_row['max_timestamp']};"
+    beatdowns_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited, backblast, json FROM {db}.beatdowns WHERE timestamp > {region_row['max_timestamp']} OR ts_edited > {region_row['max_ts_edited']};"
+    attendance_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id, json FROM {db}.bd_attendance WHERE timestamp > {region_row['max_timestamp']} OR ts_edited > {region_row['max_ts_edited']};"
+    beatdowns_no_ts_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited, backblast, json FROM {db}.beatdowns;"  # AND timestamp > {region_row['max_timestamp'] or 0};"
+    attendance_no_ts_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id, json FROM {db}.bd_attendance;"  # AND timestamp > {region_row['max_timestamp'] or 0};"
+    beatdowns_no_ed_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited, backblast, json FROM {db}.beatdowns WHERE timestamp > {region_row['max_timestamp']};"
+    attendance_no_ed_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id, json FROM {db}.bd_attendance WHERE timestamp > {region_row['max_timestamp']};"
 
     with engine.connect() as conn:
         df_users_dup_list.append(pd.read_sql(user_sql, conn))
         df_aos_list.append(pd.read_sql(aos_sql, conn))
-        if (not math.isnan(region_row["max_timestamp"])) and (
-            not math.isnan(region_row["max_ts_edited"])
-        ):
+        if (not math.isnan(region_row["max_timestamp"])) and (not math.isnan(region_row["max_ts_edited"])):
             df_beatdowns_list.append(pd.read_sql(beatdowns_sql, conn))
             df_attendance_list.append(pd.read_sql(attendance_sql, conn))
         elif not math.isnan(region_row["max_timestamp"]):
@@ -90,9 +85,7 @@ df_users_dup["email"] = df_users_dup["email"].str.lower()
 df_users_dup = df_users_dup[df_users_dup["email"].notna()]
 
 df_user_agg = (
-    df_attendance.groupby(["slack_user_id"], as_index=False)["bd_date"]
-    .count()
-    .rename(columns={"bd_date": "count"})
+    df_attendance.groupby(["slack_user_id"], as_index=False)["bd_date"].count().rename(columns={"bd_date": "count"})
 )
 df_users = (
     df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left")
@@ -100,31 +93,25 @@ df_users = (
     .sort_values(by="count", ascending=False)
 )
 df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
-user_insert_sql = f"INSERT INTO weaselbot.combined_users (user_name, email, home_region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), home_region_id = VALUES(home_region_id);"
-user_dup_insert_sql = f"INSERT INTO weaselbot.combined_users_dup (slack_user_id, user_name, email, region_id, user_id) VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), region_id = VALUES(region_id), user_id = VALUES(user_id);"
+user_insert_sql = "INSERT INTO weaselbot.combined_users (user_name, email, home_region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), home_region_id = VALUES(home_region_id);"
+user_dup_insert_sql = "INSERT INTO weaselbot.combined_users_dup (slack_user_id, user_name, email, region_id, user_id) VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), region_id = VALUES(region_id), user_id = VALUES(user_id);"
 
 with engine.connect() as conn:
     conn.execute(user_insert_sql, df_users[["user_name", "email", "region_id"]].values.tolist())
     df_users = pd.read_sql_table("combined_users", conn, schema="weaselbot")
-    df_users_dup = df_users_dup.merge(
-        df_users[["email", "user_id"]], on="email", how="left"
-    ).fillna(0)
+    df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left").fillna(0)
     df_users_dup["user_id"] = df_users_dup["user_id"].astype(int)
     conn.execute(
         user_dup_insert_sql,
-        df_users_dup[
-            ["slack_user_id", "user_name", "email", "region_id", "user_id"]
-        ].values.tolist(),
+        df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]].values.tolist(),
     )
 
 ########## AOS ##########
 print("building aos...")
-aos_insert_sql = f"INSERT INTO weaselbot.combined_aos (slack_channel_id, ao_name, region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE ao_name = VALUES(ao_name);"
+aos_insert_sql = "INSERT INTO weaselbot.combined_aos (slack_channel_id, ao_name, region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE ao_name = VALUES(ao_name);"
 
 with engine.connect() as conn:
-    conn.execute(
-        aos_insert_sql, df_aos[["slack_channel_id", "ao_name", "region_id"]].values.tolist()
-    )
+    conn.execute(aos_insert_sql, df_aos[["slack_channel_id", "ao_name", "region_id"]].values.tolist())
     df_aos = pd.read_sql_table("combined_aos", conn, schema="weaselbot")
 
 
@@ -137,7 +124,7 @@ def extract_user_id(slack_user_id):
     else:
         try:
             return slack_user_id.split("/team/")[1].split("|")[0]
-        except:
+        except Exception:
             return None
 
 
@@ -191,17 +178,23 @@ values = df_beatdowns[~df_beatdowns["ao_id"].isna()][
         "fng_count",
         "timestamp",
         "ts_edited",
+        "backblast",
+        "json",
     ]
 ].values.tolist()
 inserted_data = [[None if pd.isnull(value) else value for value in sublist] for sublist in values]
 
-beatdowns_insert_sql = f"INSERT INTO weaselbot.combined_beatdowns (ao_id, bd_date, q_user_id, coq_user_id, pax_count, fng_count, timestamp, ts_edited) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE coq_user_id = VALUES(coq_user_id), pax_count = VALUES(pax_count), fng_count = VALUES(fng_count), timestamp = VALUES(timestamp), ts_edited = VALUES(ts_edited);"
+# break up into chunks of 1000
+inserted_data = [inserted_data[i : i + 1000] for i in range(0, len(inserted_data), 1000)]
+
+beatdowns_insert_sql = "INSERT INTO weaselbot.combined_beatdowns (ao_id, bd_date, q_user_id, coq_user_id, pax_count, fng_count, timestamp, ts_edited, backblast, json) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE coq_user_id = VALUES(coq_user_id), pax_count = VALUES(pax_count), fng_count = VALUES(fng_count), timestamp = VALUES(timestamp), ts_edited = VALUES(ts_edited), backblast = VALUES(backblast), json = VALUES(json);"
 
 with engine.connect() as conn:
-    conn.execute(
-        beatdowns_insert_sql,
-        inserted_data,
-    )
+    for inserted_data_chunk in inserted_data:
+        conn.execute(
+            beatdowns_insert_sql,
+            inserted_data_chunk,
+        )
     df_beatdowns = pd.read_sql_table("combined_beatdowns", conn, schema="weaselbot")
 
 ########## ATTENDANCE ##########
@@ -236,21 +229,19 @@ df_attendance = df_attendance.fillna(np.nan).replace([np.nan], [None])
 df_attendance.drop_duplicates(subset=["beatdown_id", "user_id"], inplace=True)
 df_attendance = df_attendance[df_attendance["beatdown_id"].notnull()]
 df_attendance = df_attendance[df_attendance["user_id"].notnull()]
-attendance_insert_sql = f"INSERT INTO weaselbot.combined_attendance (beatdown_id, user_id) VALUES (%s, %s) ON DUPLICATE KEY UPDATE beatdown_id = VALUES(beatdown_id);"
+attendance_insert_sql = "INSERT INTO weaselbot.combined_attendance (beatdown_id, user_id, json) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE beatdown_id = VALUES(beatdown_id), json = VALUES(json);"
 
 with engine.connect() as conn:
-    conn.execute(attendance_insert_sql, df_attendance[["beatdown_id", "user_id"]].values.tolist())
+    conn.execute(attendance_insert_sql, df_attendance[["beatdown_id", "user_id", "json"]].values.tolist())
 
 ########## REGIONS ##########
 with engine.connect() as conn:
     df_regions = pd.read_sql(paxminer_region_sql, conn)
-    values = df_regions[
-        ["schema_name", "region_name", "max_timestamp", "max_ts_edited"]
-    ].values.tolist()
-    inserted_data = [
-        [None if pd.isnull(value) else value for value in sublist] for sublist in values
-    ]
-    conn.execute(
-        region_insert_sql,
-        inserted_data,
-    )
+    values = df_regions[["schema_name", "region_name", "max_timestamp", "max_ts_edited"]].values.tolist()
+    inserted_data = [[None if pd.isnull(value) else value for value in sublist] for sublist in values]
+    inserted_data = [inserted_data[i : i + 10000] for i in range(0, len(inserted_data), 10000)]
+    for inserted_data_chunk in inserted_data:
+        conn.execute(
+            region_insert_sql,
+            inserted_data_chunk,
+        )

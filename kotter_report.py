@@ -1,22 +1,14 @@
 ###!/mnt/nas/ml/f3-analytics/env/bin/python
 
-from re import T
-from textwrap import fill
-import mysql.connector
 from sqlalchemy import create_engine
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
 import os
-import time
-import re
-from pandas.core.dtypes.missing import notnull
 
 # from slack import WebClient
 import ssl
 from slack_sdk import WebClient
-from pandas._libs import missing
-import os
 from dotenv import load_dotenv
 
 # Will need to use PAXMiner creds
@@ -24,9 +16,7 @@ dummy = load_dotenv()
 DATABASE_USER = os.environ.get("DATABASE_USER")
 DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD")
 DATABASE_HOST = os.environ.get("DATABASE_HOST")
-engine = create_engine(
-    f"mysql+mysqlconnector://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:3306"
-)
+engine = create_engine(f"mysql+mysqlconnector://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:3306")
 
 # Inputs
 year_select = date.today().year
@@ -67,9 +57,7 @@ Now may be a good time to reach out to them when you get a minute. No OYO! :musc
 
 # Pull paxminer region data
 with engine.connect() as conn:
-    df_regions = pd.read_sql_query(
-        sql="SELECT * FROM weaselbot.regions WHERE send_aoq_reports = 1;", con=conn
-    )
+    df_regions = pd.read_sql_query(sql="SELECT * FROM weaselbot.regions WHERE send_aoq_reports = 1;", con=conn)
 
 for region_index, region_row in df_regions.iterrows():
     db = region_row["paxminer_schema"]
@@ -79,28 +67,28 @@ for region_index, region_row in df_regions.iterrows():
 
     # SQL for pull
     sql_select = f"""-- sql
-    SELECT bd.user_id AS pax_id,
-        u.user_name AS pax,
-        bd.ao_id AS ao_id,
-        a.ao,
-        bd.date,
-        YEAR(bd.date) AS year_num,
-        MONTH(bd.date) AS month_num,
-        WEEK(bd.date) AS week_num,
-        DAY(bd.date) AS day_num,
-        CASE WHEN bd.user_id = bd.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag,
-        b.backblast
-    FROM {db}.bd_attendance bd
-    INNER JOIN {db}.users u
-    ON bd.user_id = u.user_id
-    INNER JOIN {db}.aos a
-    ON bd.ao_id = a.channel_id
-    INNER JOIN {db}.beatdowns b
-    ON bd.ao_id = b.ao_id
-        AND bd.date = b.bd_date
-        AND bd.q_user_id = b.q_user_id
-    WHERE bd.date > 0
-        AND bd.date <= CURDATE()
+    SELECT u2.user_id AS pax_id,
+        u2.user_name AS pax,
+        a.ao_id AS ao_id,
+        a.ao_name as ao,
+        b.bd_date AS date,
+        YEAR(b.bd_date) AS year_num,
+        MONTH(b.bd_date) AS month_num,
+        WEEK(b.bd_date) AS week_num,
+        DAY(b.bd_date) AS day_num,
+        CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag
+
+    FROM weaselbot.combined_attendance bd
+    INNER JOIN weaselbot.combined_users u
+    ON u.user_id = bd.user_id
+    INNER JOIN weaselbot.combined_beatdowns b
+    ON bd.beatdown_id = b.beatdown_id
+    INNER JOIN weaselbot.combined_aos a
+    ON b.ao_id = a.ao_id
+    INNER JOIN {db}.users u2
+    ON u.email = u2.email
+    WHERE b.bd_date > 0
+        AND b.bd_date <= CURDATE()
     ;
     """
 
@@ -108,16 +96,12 @@ for region_index, region_row in df_regions.iterrows():
     with engine.connect() as conn:
         df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
         df_siteq = pd.read_sql_query(sql=f"SELECT ao, site_q_user_id FROM {db}.aos;", con=conn)
-        paxminer_log_channel = conn.execute(
-            f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';"
-        ).fetchone()[0]
+        paxminer_log_channel = conn.execute(f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';").fetchone()[
+            0
+        ]
 
     # Derive home_ao
-    home_ao_df = (
-        df[df["date"] > home_ao_capture]
-        .groupby(["pax_id", "ao"], as_index=False)["day_num"]
-        .count()
-    )
+    home_ao_df = df[df["date"] > home_ao_capture].groupby(["pax_id", "ao"], as_index=False)["day_num"].count()
     # home_ao_df = home_ao_df[home_ao_df['ao'].str.contains('^ao')] # this prevents home AO being assigned to blackops, rucking, etc... could be changed in the future
     home_ao_df.sort_values(["pax_id", "day_num"], ascending=False, inplace=True)
     home_ao_df = home_ao_df.groupby(["pax_id"], as_index=False)["ao"].first()
@@ -128,9 +112,7 @@ for region_index, region_row in df_regions.iterrows():
     df["home_ao"].fillna("unknown", inplace=True)
 
     # Group by PAX / week
-    df2 = df.groupby(["year_num", "week_num", "pax_id", "home_ao"], as_index=False).agg(
-        {"day_num": np.count_nonzero}
-    )
+    df2 = df.groupby(["year_num", "week_num", "pax_id", "home_ao"], as_index=False).agg({"day_num": np.count_nonzero})
     df2.rename(columns={"day_num": "post_count"}, inplace=True)
 
     # Pull list of weeks
@@ -151,9 +133,7 @@ for region_index, region_row in df_regions.iterrows():
 
     # Add rolling sums
     df6["post_count_rolling"] = df6["post_count"].rolling(no_post_threshold, min_periods=1).sum()
-    df6["post_count_rolling_stop"] = (
-        df6["post_count"].rolling(no_post_threshold + reminder_weeks, min_periods=1).sum()
-    )
+    df6["post_count_rolling_stop"] = df6["post_count"].rolling(no_post_threshold + reminder_weeks, min_periods=1).sum()
     df6["post_count_rolling"] = df6["post_count"].rolling(no_post_threshold, min_periods=1).sum()
 
     # Pull pull list of guys not posting
@@ -161,15 +141,11 @@ for region_index, region_row in df_regions.iterrows():
         "date"
     ].max()  # this will only work as expected if you run on Sunday
     # pull_week = datetime(2021, 11, 29, 0, 0, 0)
-    df7 = df6[
-        (df6["post_count_rolling"] == 0)
-        & (df6["date"] == pull_week)
-        & (df6["post_count_rolling_stop"] > 0)
-    ]
+    df7 = df6[(df6["post_count_rolling"] == 0) & (df6["date"] == pull_week) & (df6["post_count_rolling_stop"] > 0)]
 
     # Pull pull list of guys not Q-ing
     df8 = (
-        df[df["q_flag"] == True]
+        df[df["q_flag"] == True]  # noqa: E712
         .groupby(["pax_id"], as_index=False)["date"]
         .max()
         .rename(columns={"date": "last_q_date"})
@@ -212,9 +188,7 @@ for region_index, region_row in df_regions.iterrows():
         # Send message
         if (len(dftemp_posts) + len(dftemp_qs)) > 0:
             try:
-                response = slack_client.chat_postMessage(
-                    channel=siteq, text=sMessage, link_names=True
-                )
+                response = slack_client.chat_postMessage(channel=siteq, text=sMessage, link_names=True)
                 print(f"Sent {siteq} this message:\n\n{sMessage}\n\n")
             except Exception as e:
                 print(f"Error sending message to {siteq}: {e}")
@@ -222,9 +196,7 @@ for region_index, region_row in df_regions.iterrows():
     sMessage = build_kotter_report(df_posts, df_qs, region_row["default_siteq"])
     sMessage += "\n\nNote: If you have listed your site Qs on your aos table, this information will have gone out to them as well."
     try:
-        response = slack_client.chat_postMessage(
-            channel=region_row["default_siteq"], text=sMessage, link_names=True
-        )
+        response = slack_client.chat_postMessage(channel=region_row["default_siteq"], text=sMessage, link_names=True)
         print(f'Sent {region_row["default_siteq"]} this message:\n\n{sMessage}\n\n')
     except Exception as e:
         print(f"hit exception {e}")
@@ -243,9 +215,7 @@ for region_index, region_row in df_regions.iterrows():
     # Send myself a message
     separator = ", "
     try:
-        response2 = slack_client.chat_postMessage(
-            channel=paxminer_log_channel, text="Successfully sent kotter reports"
-        )
+        response2 = slack_client.chat_postMessage(channel=paxminer_log_channel, text="Successfully sent kotter reports")
         print(f"Sent {paxminer_log_channel} this message:\n\nSuccessfully sent kotter reports\n\n")
     except Exception as e:
         print(f"Error sending message to {paxminer_log_channel}: {e}")  # TODO: add self to channel

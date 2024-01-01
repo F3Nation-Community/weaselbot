@@ -63,7 +63,8 @@ settings:
 2. Please send me (@Moneyball, you can find me on the F3 Nation Slack space) the following info:
     * Your region's name and PAXMiner database name
     * The bot token that you generated above
-    * The Channel ID that you generated in the previous step
+    * The Channel ID that you generated in the previous step for achievements
+    * The User or Channel ID of where you want the FULL kotter report going to... many regions have been using private channels for this. If using a private channel, you will need to add Weaselbot to the channel manually
     * Let me know if you want both the achievements and kotter report functionality
 3. I will create some additional tables in your PAXMiner schema
 
@@ -82,6 +83,7 @@ If enabled, WeaselBot will pull your PAXMiner data daily to see if any of your P
     * Blackops (non-scheduled beatdowns): `#blackops`
     * Rucking: `#rucking`
     * Everything else is assumed to be a standard beatdown
+6. Weaselbot now uses Nation-level data for both kotter reports and achievements. This means that guys posting DR will get credit for those posts, WITHOUT making special DR posts. For this reason, I recommend against making DR posts unless the DR region does not use PAXMiner.
 
 ### Manual achievements
 
