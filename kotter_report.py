@@ -1,4 +1,4 @@
-###!/mnt/nas/ml/f3-analytics/env/bin/python
+#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.8/bin/python3.8
 
 from sqlalchemy import create_engine
 import pandas as pd
@@ -10,6 +10,8 @@ import os
 import ssl
 from slack_sdk import WebClient
 from dotenv import load_dotenv
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # Will need to use PAXMiner creds
 dummy = load_dotenv()
@@ -55,50 +57,52 @@ Now may be a good time to reach out to them when you get a minute. No OYO! :musc
     return sMessage
 
 
+# SQL for nation pull
+nation_select = """-- sql
+SELECT u.email
+    a.ao_id AS ao_id,
+    a.ao_name as ao,
+    b.bd_date AS date,
+    YEAR(b.bd_date) AS year_num,
+    MONTH(b.bd_date) AS month_num,
+    WEEK(b.bd_date) AS week_num,
+    DAY(b.bd_date) AS day_num,
+    CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag
+
+FROM weaselbot.combined_attendance bd
+INNER JOIN weaselbot.combined_users u
+ON u.user_id = bd.user_id
+INNER JOIN weaselbot.combined_beatdowns b
+ON bd.beatdown_id = b.beatdown_id
+INNER JOIN weaselbot.combined_aos a
+ON b.ao_id = a.ao_id
+WHERE b.bd_date > 0
+    AND b.bd_date <= CURDATE()
+;
+"""
+
 # Pull paxminer region data
 with engine.connect() as conn:
     df_regions = pd.read_sql_query(sql="SELECT * FROM weaselbot.regions WHERE send_aoq_reports = 1;", con=conn)
+    nation_df = pd.read_sql_query(sql=nation_select, con=conn, parse_dates=["date"])
 
+# Loop through regions
 for region_index, region_row in df_regions.iterrows():
     db = region_row["paxminer_schema"]
     slack_secret = region_row["slack_token"]
 
     print(f"running {db}...")
 
-    # SQL for pull
-    sql_select = f"""-- sql
-    SELECT u2.user_id AS pax_id,
-        u2.user_name AS pax,
-        a.ao_id AS ao_id,
-        a.ao_name as ao,
-        b.bd_date AS date,
-        YEAR(b.bd_date) AS year_num,
-        MONTH(b.bd_date) AS month_num,
-        WEEK(b.bd_date) AS week_num,
-        DAY(b.bd_date) AS day_num,
-        CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag
-
-    FROM weaselbot.combined_attendance bd
-    INNER JOIN weaselbot.combined_users u
-    ON u.user_id = bd.user_id
-    INNER JOIN weaselbot.combined_beatdowns b
-    ON bd.beatdown_id = b.beatdown_id
-    INNER JOIN weaselbot.combined_aos a
-    ON b.ao_id = a.ao_id
-    INNER JOIN {db}.users u2
-    ON u.email = u2.email
-    WHERE b.bd_date > 0
-        AND b.bd_date <= CURDATE()
-    ;
-    """
-
     # df = pd.read_csv('data/master_table.csv', parse_dates=['date'])
     with engine.connect() as conn:
-        df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
+        user_df = pd.read_sql_table(table_name="users", con=conn, schema=db)
         df_siteq = pd.read_sql_query(sql=f"SELECT ao, site_q_user_id FROM {db}.aos;", con=conn)
         paxminer_log_channel = conn.execute(f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';").fetchone()[
             0
         ]
+
+    df = pd.merge(nation_df, user_df, how="inner", on="email")
+    df.rename(columns={"user_id": "pax_id", "user_name": "pax_name"}, inplace=True)
 
     # Derive home_ao
     home_ao_df = df[df["date"] > home_ao_capture].groupby(["pax_id", "ao"], as_index=False)["day_num"].count()

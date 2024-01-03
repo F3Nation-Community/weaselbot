@@ -1,4 +1,4 @@
-###!/mnt/nas/ml/f3-analytics/env/bin/python
+#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.8/bin/python3.8
 
 import pandas as pd
 import numpy as np
@@ -13,6 +13,8 @@ import re
 import os
 from dotenv import load_dotenv
 from slack_sdk.errors import SlackApiError
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # Inputs
 year_select = date.today().year
@@ -55,6 +57,7 @@ with engine.connect() as conn:
     nation_df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
 
 # Loop through regions
+region_row = df_regions.iloc[0]
 for region_index, region_row in df_regions.iterrows():
     db = region_row["paxminer_schema"]
     slack_secret = region_row["slack_token"]
@@ -84,6 +87,7 @@ for region_index, region_row in df_regions.iterrows():
 
     # Merge in user table
     df = pd.merge(nation_df, user_table, on=["email"], how="inner")
+    df.rename(columns={"user_id": "pax_id", "user_name": "pax"}, inplace=True)
 
     # Create flags for different event types (beatdowns, blackops, qsource, etc)
     df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "")

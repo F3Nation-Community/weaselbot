@@ -1,4 +1,4 @@
-###!/mnt/nas/ml/f3-analytics/env/bin/python
+#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.8/bin/python3.8
 
 import pandas as pd
 import numpy as np
@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 import math
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 dummy = load_dotenv()
 engine = create_engine(
     f"mysql+mysqlconnector://{os.environ.get('DATABASE_USER')}:{os.environ.get('DATABASE_PASSWORD')}@{os.environ.get('DATABASE_HOST')}:3306"
