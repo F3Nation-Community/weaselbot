@@ -1,11 +1,12 @@
-#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.8/bin/python3.8
+#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
-import pandas as pd
-import numpy as np
-from sqlalchemy import create_engine
-from dotenv import load_dotenv
-import os
 import math
+import os
+
+import numpy as np
+import pandas as pd
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 dummy = load_dotenv()
@@ -44,7 +45,7 @@ df_aos_list = []
 df_beatdowns_list = []
 df_attendance_list = []
 
-for region_index, region_row in df_regions.iterrows():
+for _, region_row in df_regions.iterrows():
     db = region_row["schema_name"]
     region_id = region_row["region_id"]
     print(f"pulling {db}...")

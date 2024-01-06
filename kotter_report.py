@@ -1,15 +1,14 @@
-#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.8/bin/python3.8
+#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
-from sqlalchemy import create_engine
-import pandas as pd
-import numpy as np
-from datetime import datetime, date, timedelta
 import os
-
-# from slack import WebClient
 import ssl
-from slack_sdk import WebClient
+from datetime import date, datetime, timedelta
+
+import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
+from slack_sdk import WebClient
+from sqlalchemy import create_engine
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,13 +41,13 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
         sMessage += "\n\nThe following PAX haven't posted in a bit. \
 Now may be a good time to reach out to them when you get a minute. No OYO! :muscle:"
 
-        for index, row in df_posts.iterrows():
+        for _, row in df_posts.iterrows():
             sMessage += "\n- <@" + row["pax_id"] + ">"
 
     if len(df_qs) > 0:
         sMessage += "\n\nThese guys haven't Q'd anywhere in a while (or at all!):"
 
-        for index, row in df_qs.iterrows():
+        for _, row in df_qs.iterrows():
             sMessage += "\n- <@" + row["pax_id"] + ">"
             if np.isnan(row["days_since_last_q"]):
                 sMessage += " (no Q yet!)"
@@ -87,7 +86,7 @@ with engine.connect() as conn:
     nation_df = pd.read_sql_query(sql=nation_select, con=conn, parse_dates=["date"])
 
 # Loop through regions
-for region_index, region_row in df_regions.iterrows():
+for _, region_row in df_regions.iterrows():
     db = region_row["paxminer_schema"]
     slack_secret = region_row["slack_token"]
 

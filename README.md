@@ -1,5 +1,9 @@
 # WeaselBot
 
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Poetry](https://img.shields.io/endpoint?url=https://python-poetry.org/badge/v0.json)](https://python-poetry.org/)
+
 A supplemental tool for [F3 regions](https://f3nation.com/) to get more out of their data! WeaselBot is a Slack bot designed to get the PAX in your region more engaged, here's what he can do:
 
 - [Achievements](#achievements): Incorporate automated "achievements" that are awarded based on F3 activity
@@ -110,4 +114,22 @@ WeaselBot compiles this list, then sends reports out. At a minimum, the full lis
 2. I will create a new column on your `aos` table for Site Qs
 3. Enter your Site Qs' **user_ids** (not names) in this column. Update as necessary when Site Qs switch out
 
+## Contributing
 
+We're always happy to take PRs! Below are instructions for running Weaselbot locally for development.
+
+1. Clone the repo:
+```sh
+git clone https://github.com/evanpetzoldt/weaselbot.git
+cd weaselbot
+```
+2. Install python poetry: https://python-poetry.org/docs/
+3. Create virtual environment and install project dependencies:
+```sh
+poetry env use /path/to/python3.11
+poetry install
+```
+4. If using the paxminer database (most common use), copy `.env.example`, rename to `.env` and fill credentials (ask Moneyball for these). Otherwise, create your own local db and use your own credentials (initialization scripts coming soon).
+5. Run scripts with `poetry run python script_name.py`
+6. This project uses Ruff / Black to apply consistent code formatting. Use `pre-commit install` to install the pre commit hooks (I'll eventually apply these as Github Actions on pushes to `main`)
+7. (Coming soon): run unit tests through `poetry run pytest`, which automatically runs all tests in the `tests/` folder
