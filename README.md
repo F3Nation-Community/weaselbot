@@ -93,7 +93,7 @@ If enabled, WeaselBot will pull your PAXMiner data daily to see if any of your P
 
 You can add manual achievements in your region for things like "run a 5k" or "complete a GrowRuck GTE". Here are the steps to using this functionality:
 
-1. Add records to your `achievements_list` table (follow the [PAXMiner instructions for using DBeaver](https://f3stlouis.com/paxminer-setup/) or something similar). You will need to specificy the achievement's name, a description (for trophy cases, etc), a "verb" (essentially just the description in verb form) and a code to uniquely identify the achievement
+1. Add records to your `achievements_list` table (follow the [PAXMiner instructions for using DBeaver](https://f3stlouis.com/paxminer-setup/) or something similar). You will need to specify the achievement's name, a description (for trophy cases, etc), a "verb" (essentially just the description in verb form) and a code to uniquely identify the achievement
 2. **Important:** achievement codes cannot contain spaces - use underscores ( _ ) in their place
 3. To tag guys for manual achievements, create a backblast. In the body of the backblast, create a separate line that says "Achievement: CODE_HERE", substituting in your manual achievement's code. See below for an example
 
