@@ -95,8 +95,9 @@ for _, region_row in df_regions.iterrows():
         df.rename(columns={"user_id": "pax_id", "user_name": "pax"}, inplace=True)
 
         # Create flags for different event types (beatdowns, blackops, qsource, etc)
-        df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "")
-        df["backblast_title"] = df["backblast_title"].str.split("\n", expand=True).iloc[:, 0]
+        df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "").str.split("\n", expand=True).iloc[:, 0]
+        # df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "")
+        # df["backblast_title"] = df["backblast_title"].str.split("\n", expand=True).iloc[:, 0]
 
         df["ruck_flag"] = df["backblast_title"].str.contains(
             r"\b(?:pre-ruck|preruck|rucking)\b", flags=re.IGNORECASE, regex=True
@@ -111,9 +112,7 @@ for _, region_row in df_regions.iterrows():
         df.loc[df["ao"] == "qsource", "qsource_flag"] = True
 
         df["blackops_flag"] = df["backblast_title"].str.contains(r"\b(?:blackops)\b", flags=re.IGNORECASE, regex=True)
-        df.loc[df["ao"] == "blackops", "blackops_flag"] = True
-        df.loc[df["ao"] == "csaup", "blackops_flag"] = True
-        df.loc[df["ao"] == "downrange", "blackops_flag"] = True
+        df.loc[df["ao"].isin(("blackops", "csaup", "downrange")), "blackops_flag"] = True
 
         # Anything that's not a blackops / qsource / ruck is assumed to be a beatdown for counting achievements
         df[df["ruck_flag"].isna()]
