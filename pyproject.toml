@@ -89,6 +89,10 @@ ruff = "^0.1.11"
 sqlparse = "^0.4.4"
 
 
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.8.0"
+pandas-stubs = "^2.1.4.231227"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
