@@ -2,15 +2,22 @@
 
 import os
 import ast
+from typing import Any, Tuple, Hashable
 
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, MetaData, Table, literal_column
 from sqlalchemy.sql import select, func, or_
+from sqlalchemy.sql.expression import Insert, Subquery, Selectable
+from sqlalchemy.engine import Engine
 from sqlalchemy.dialects.mysql import insert
+from pandas._libs.missing import NAType
 
 
-def mysql_connection():
+
+
+
+def mysql_connection() -> Engine:
     """Connect to MySQL. This involves loading environment variables from file"""
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     load_dotenv()
@@ -20,13 +27,33 @@ def mysql_connection():
     return engine
 
 
-def insert_statement(table, insert_values, update_cols):
+def insert_statement(table: Table, insert_values: list[dict[Hashable, Any]], update_cols: Tuple[str, ...]) -> Insert:
+    """
+    Abstract the MySQL insert statement. Returns a SQLAlchemy INSERT statement that renders
+    the following:
+    
+    ```sql
+    INSERT INTO <table> (col1, col2, ...) VALUES ((val1a, val1b, ...), (val2a, val2b, ...), ...) 
+    AS NEW ON DUPLICATE KEY UPDATE colx = NEW(colx), coly = NEW(coly), ...
+    ```
+    
+    In this way, the creation and execution of MySQL INSERT statements becomes far less error prone and more
+    standardized.
+
+    :param table: The target table for the INSERT statement
+    :type table: SQLAlchemy Table object
+    :param insert_values: A list of dictionaries. Each dictionary is a key / value pair preresenting 
+    the table column_name / value_to_insert.
+    :type insert_values: list[dict[str, Any]]
+    :rtype: Insert[Any]
+    :return: SQLAlchemy INSERT statement
+    """
     sql = insert(table).values(insert_values)
     on_dup = sql.on_duplicate_key_update({v.name: v for v in sql.inserted if v.name in update_cols})
     return on_dup
 
 
-def region_subquery(metadata):
+def region_subquery(metadata: MetaData) -> Subquery:
     """
     Abstracting some SQL duplication between the
     paxminer and weaselbot region queries
@@ -45,7 +72,7 @@ def region_subquery(metadata):
     return sql
 
 
-def paxminer_region_query(metadata, cr):
+def paxminer_region_query(metadata: MetaData, cr: Table) -> Selectable:
     """
     Construct the region SQL using paxminer
     """
@@ -67,7 +94,7 @@ def paxminer_region_query(metadata, cr):
     return sql
 
 
-def weaselbot_region_query(metadata, cr):
+def weaselbot_region_query(metadata: MetaData, cr: Table) -> Selectable:
     """
     Construct the region SQL using weaselbot
     """
@@ -79,10 +106,17 @@ def weaselbot_region_query(metadata, cr):
     return sql
 
 
-def region_queries(engine, metadata):
+def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     """
     Using PAXMiner and Weaselbot region tables, make updates to the
     Weaselbot combined_regions table if any exist from PAXMiner.
+
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: A dataframe containing current region information
     """
     cr = metadata.tables["weaselbot.combined_regions"]
 
@@ -93,8 +127,8 @@ def region_queries(engine, metadata):
     update_cols = ("region_name", "max_timestamp", "max_ts_edited")
     region_insert_sql = insert_statement(cr, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(region_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(region_insert_sql)
 
     dtypes = dict(
         region_id=pd.StringDtype(),
@@ -112,7 +146,19 @@ def region_queries(engine, metadata):
     return df_regions
 
 
-def pull_main_data(df_regions, engine, metadata):
+def pull_main_data(df_regions: pd.DataFrame, engine: Engine, metadata: MetaData) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Pull the weaselbot data from each region. Then concat that data into their own dataframes for later analysis and table updates.
+
+    :param df_regions: pandas DataFrame object containing each region's information
+    :type df_regions: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: tuple
+    :return: a collection of pandas DataFrames containing user info, AO info, beatdown info and attendance info
+    """
     df_users_dup_list, df_aos_list, df_beatdowns_list, df_attendance_list = [], [], [], []
 
     users_dtypes = dict(
@@ -140,9 +186,8 @@ def pull_main_data(df_regions, engine, metadata):
     )
 
     for row in df_regions.itertuples(index=False):
-        print(f"starting {row.schema_name}...", end=" ")
         try:
-            db = row.schema_name
+            db = row.schema_name.__str__()
             usr = Table("users", metadata, autoload_with=engine, schema=db)
             beatdowns = Table("beatdowns", metadata, autoload_with=engine, schema=db)
             attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=db)
@@ -220,7 +265,6 @@ def pull_main_data(df_regions, engine, metadata):
         except Exception as e:
             print()
             print(e)
-        print("Done")
     df_users_dup = pd.concat(df_users_dup_list)
     df_aos = pd.concat(df_aos_list)
     df_beatdowns = pd.concat(df_beatdowns_list)
@@ -231,8 +275,24 @@ def pull_main_data(df_regions, engine, metadata):
     return df_users_dup, df_aos, df_beatdowns, df_attendance
 
 
-def build_users(df_users_dup, df_attendance, engine, metadata):
-    ########## USERS ##########
+def build_users(df_users_dup: pd.DataFrame, df_attendance: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Process the user information from each region. Attendance information is taken into account and 
+    inserted/updated in each target table accordingly. Returns a pandas DataFrame that updates the
+    input dataframe `df_users_dup`
+
+    :param df_users_dup: pandas DataFrame object containing each region's user info
+    :type df_users_dup: pandas.DataFrame object
+    :param df_attendance: pandas DataFrame object containing each region's attendance information
+    :type df_attendance: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: updated df_users_dup dataframe
+    """
+
     print("building users...")
 
     cu = metadata.tables["weaselbot.combined_users"]
@@ -262,8 +322,8 @@ def build_users(df_users_dup, df_attendance, engine, metadata):
     update_cols = ("user_name", "email", "home_region_id")
     user_insert_sql = insert_statement(cu, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(user_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(user_insert_sql)
 
     df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
@@ -279,22 +339,34 @@ def build_users(df_users_dup, df_attendance, engine, metadata):
     update_cols = ("user_name", "email", "region_id", "user_id")
     user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(user_dup_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(user_dup_insert_sql)
 
     return df_users_dup
 
 
-def build_aos(df_aos, engine, metadata):
-    ########## AOS ##########
+def build_aos(df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Returns a pandas DataFrame that reflects an update to the input dataframe after
+    table inserts/updates.
+
+    :param df_aos: pandas DataFrame object containing each region's AO information
+    :type df_aos: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: updated df_aos dataframe
+    """
     print("building aos...")
     ca = metadata.tables["weaselbot.combined_aos"]
     insert_values = df_aos[["slack_channel_id", "ao_name", "region_id"]].to_dict("records")
     update_cols = ("ao_name",)
     aos_insert_sql = insert_statement(ca, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(aos_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(aos_insert_sql)
 
     dtypes = {
         "ao_id": pd.StringDtype(),
@@ -306,7 +378,18 @@ def build_aos(df_aos, engine, metadata):
     return pd.read_sql(select(ca), engine, dtype=dtypes)
 
 
-def extract_user_id(slack_user_id):
+def extract_user_id(slack_user_id) -> NAType | str:
+    """
+    Process Slack user ID's. Some of these are
+    not just simple user ID's. Clean them up
+    to standardize across the process.
+    
+    :param slack_user_id: User ID from Slack
+    :type slack_user_id: str
+    :rtype: str | pandas.NA
+    :return: cleaned userid string. 
+    """
+
     match isinstance(slack_user_id, type(pd.NA)):
         case True:
             return pd.NA
@@ -315,12 +398,28 @@ def extract_user_id(slack_user_id):
                 return slack_user_id
             elif "team" in slack_user_id:
                 return slack_user_id.split("/team/")[1].split("|")[0]
-            else:
-                pass
+            # else:
+            #     pass
 
 
-def build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata):
-    ########## BEATDOWNS ##########
+def build_beatdowns(df_beatdowns: pd.DataFrame, df_users_dup: pd.DataFrame, df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Returns an updated beatdowns dataframe after updates/inserts to the weaselbot.combined_beatdowns table.
+    
+    :param df_beatdowns: pandas DataFrame object containing each region's beatdown information
+    :type df_beatdowns: pandas.DataFrame object
+    :param df_users_dup: pandas DataFrame object containing each region's users information
+    :type df_users_dup: pandas.DataFrame object
+    :param df_aos: pandas DataFrame object containing each region's AO information
+    :type df_aos: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: updated df_beatdowns dataframe
+    """
+
     print("building beatdowns...")
     df_beatdowns["slack_q_user_id"] = df_beatdowns["slack_q_user_id"].apply(extract_user_id).astype(pd.StringDtype())
     df_beatdowns["slack_coq_user_id"] = (
@@ -353,7 +452,6 @@ def build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata):
     )
     df_beatdowns["fng_count"] = df_beatdowns["fng_count"].fillna(0)
 
-    # convert all nans to None
     insert_values = df_beatdowns[df_beatdowns["ao_id"].notna()][
         [
             "ao_id",
@@ -370,6 +468,11 @@ def build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata):
     ].to_dict("records")
 
     # below columns are INT in their target table. coerce them so they'll load properly
+    # leaving them as strings in the dataframes for later ease in merges/joins
+    # NOTE: YHC is unable to test the JSON datatype. Presumbaly, MySQL will want those
+    # sent over as proper dictionaries and not string representations of dictionaries.
+    # This is the role of `ast.literal_eval`. If that's not the case, then just remove
+    # the `if` statement logic to keep them as strings.
     for d in insert_values:
         for col in ("ao_id", "q_user_id", "coq_user_id"):
             try:
@@ -377,14 +480,14 @@ def build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata):
             except TypeError:
                 pass
         if d["json"] is not None:
-            d["json"] = ast.literal_eval(d["json"])  # on the fence. This may not work
+            d["json"] = ast.literal_eval(d["json"])
 
     update_cols = ("coq_user_id", "pax_count", "fng_count", "timestamp", "ts_edited", "backblast", "json")
 
     beatdowns_insert_sql = insert_statement(cb, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(beatdowns_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(beatdowns_insert_sql)
 
     dtypes = dict(
         beatdown_id=pd.StringDtype(),
@@ -398,7 +501,7 @@ def build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata):
         backblast=pd.StringDtype(),
         json=pd.StringDtype(),
     )
-
+    
     df_beatdowns = pd.read_sql(select(cb), engine, parse_dates="bd_date", dtype=dtypes)
     df_beatdowns.q_user_id = (
         df_beatdowns.q_user_id.astype(pd.Float64Dtype()).astype(pd.Int64Dtype()).astype(pd.StringDtype())
@@ -406,8 +509,27 @@ def build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata):
     return df_beatdowns
 
 
-def build_attendance(df_attendance, df_users_dup, df_aos, df_beatdowns, engine, metadata):
-    ########## ATTENDANCE ##########
+def build_attendance(df_attendance: pd.DataFrame, df_users_dup: pd.DataFrame, df_aos: pd.DataFrame, df_beatdowns: pd.DataFrame, engine: Engine, metadata: MetaData) -> None:
+    """
+    Returns None. This process usees all the proir updates to users, AOs and beatdowns to update attendance records in the source
+    tables.
+
+    :param df_attendance: pandas DataFrame object containing each region's attendance information
+    :type df_attendance: pandas.DataFrame object
+    :param df_beatdowns: pandas DataFrame object containing each region's beatdown information
+    :type df_beatdowns: pandas.DataFrame object
+    :param df_users_dup: pandas DataFrame object containing each region's users information
+    :type df_users_dup: pandas.DataFrame object
+    :param df_aos: pandas DataFrame object containing each region's AO information
+    :type df_aos: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: None
+    :return: None
+    """
+    
     print("building attendance...")
     catt = metadata.tables["weaselbot.combined_attendance"]
     df_attendance["slack_user_id"] = df_attendance["slack_user_id"].apply(extract_user_id).astype(pd.StringDtype())
@@ -448,12 +570,21 @@ def build_attendance(df_attendance, df_users_dup, df_aos, df_beatdowns, engine, 
     update_cols = ("beatdown_id", "json")
     attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(attendance_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(attendance_insert_sql)
 
 
-def build_regions(engine, metadata):
-    ########## REGIONS ##########
+def build_regions(engine: Engine, metadata: MetaData) -> None:
+    """Run the regions querie again after all updates are made in order to capture any changes.
+    
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: None
+    :return: None
+    """
+    
 
     cr = metadata.tables["weaselbot.combined_regions"]
     paxminer_region_sql = paxminer_region_query(metadata, cr)
@@ -462,11 +593,15 @@ def build_regions(engine, metadata):
     update_cols = ("region_name", "max_timestamp", "max_ts_edited")
     region_insert_sql = insert_statement(cr, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        cnxn.execute(region_insert_sql)
+    # with engine.begin() as cnxn:
+    #     cnxn.execute(region_insert_sql)
 
 
-def main():
+def main() -> None:
+    """
+    Main function call. This is the process flow for the original code. If not called from the
+    command line, then follow this sequence of steps for proper implementation.
+    """
     engine = mysql_connection()
     metadata = MetaData()
 
