@@ -1,16 +1,24 @@
 #!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
+import os
 import ssl
 from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from slack_sdk import WebClient
 from sqlalchemy import MetaData, Table
 from sqlalchemy.sql import func, select, case, or_, and_
 
-from f3_data_builder import mysql_connection
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+# Will need to use PAXMiner creds
+load_dotenv()
+DATABASE_USER = os.environ.get("DATABASE_USER")
+DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD")
+DATABASE_HOST = os.environ.get("DATABASE_HOST")
+engine = create_engine(f"mysql+mysqlconnector://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:3306")
 
 NO_POST_THRESHOLD = 2
 REMINDER_WEEKS = 2
@@ -142,9 +150,9 @@ for _, region_row in df_regions.iterrows():
     df6.sort_values(["pax_id", "date"], inplace=True)
 
     # Add rolling sums
-    df6["post_count_rolling"] = df6["post_count"].rolling(NO_POST_THRESHOLD, min_periods=1).sum()
-    df6["post_count_rolling_stop"] = df6["post_count"].rolling(NO_POST_THRESHOLD + REMINDER_WEEKS, min_periods=1).sum()
-    df6["post_count_rolling"] = df6["post_count"].rolling(NO_POST_THRESHOLD, min_periods=1).sum()
+    df6["post_count_rolling"] = df6["post_count"].rolling(no_post_threshold, min_periods=1).sum()
+    df6["post_count_rolling_stop"] = df6["post_count"].rolling(no_post_threshold + reminder_weeks, min_periods=1).sum()
+    df6["post_count_rolling"] = df6["post_count"].rolling(no_post_threshold, min_periods=1).sum()
 
     # Pull pull list of guys not posting
     pull_week = df6[df6["date"] < str(date.today())][
@@ -166,8 +174,8 @@ for _, region_row in df_regions.iterrows():
         (df9["post_count_rolling"] > 0)
         & (df6["date"] == pull_week)
         & (
-            (df9["days_since_last_q"] > (NO_Q_THRESHOLD_WEEKS * 7))
-            | (df9["days_since_last_q"].isna() & (df9["post_count_rolling"] > NO_Q_THRESHOLD_POSTS))
+            (df9["days_since_last_q"] > (no_q_threshold_weeks * 7))
+            | (df9["days_since_last_q"].isna() & (df9["post_count_rolling"] > no_q_threshold_posts))
         )
     ]
 

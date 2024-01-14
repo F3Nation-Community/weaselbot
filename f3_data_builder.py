@@ -13,7 +13,7 @@ from sqlalchemy.dialects.mysql import insert
 def mysql_connection():
     """Connect to MySQL. This involves loading environment variables from file"""
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    load_dotenv()
+    dummy = load_dotenv()
     engine = create_engine(
         f"mysql+mysqlconnector://{os.environ.get('DATABASE_USER')}:{os.environ.get('DATABASE_PASSWORD')}@{os.environ.get('DATABASE_HOST')}:3306"
     )
