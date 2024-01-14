@@ -6,16 +6,15 @@ from datetime import date, datetime, timedelta
 import numpy as np
 import pandas as pd
 from slack_sdk import WebClient
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, Table
+from sqlalchemy.sql import func, select, case, or_, and_
 
 from f3_data_builder import mysql_connection
 
 
 NO_POST_THRESHOLD = 2
 REMINDER_WEEKS = 2
-HOME_AO_CAPTURE = datetime.combine(
-    date.today() + timedelta(weeks=-8), datetime.min.time()
-) 
+HOME_AO_CAPTURE = datetime.combine(date.today() + timedelta(weeks=-8), datetime.min.time())
 NO_Q_THRESHOLD_WEEKS = 4
 NO_Q_THRESHOLD_POSTS = 4
 
@@ -47,56 +46,73 @@ Now may be a good time to reach out to them when you get a minute. No OYO! :musc
     return sMessage
 
 
-# SQL for nation pull
-nation_select = """
-SELECT u.email
-    a.ao_id AS ao_id,
-    a.ao_name as ao,
-    b.bd_date AS date,
-    YEAR(b.bd_date) AS year_num,
-    MONTH(b.bd_date) AS month_num,
-    WEEK(b.bd_date) AS week_num,
-    DAY(b.bd_date) AS day_num,
-    CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag
+bd = metadata.tables["weaselbot.combined_attendance"]
+u = metadata.tables["weaselbot.combined_users"]
+b = metadata.tables["weaselbot.combined_beatdowns"]
+a = metadata.tables["weaselbot.combined_aos"]
+r = metadata.tables["weaselbot.regions"]
 
-FROM weaselbot.combined_attendance bd
-INNER JOIN weaselbot.combined_users u
-ON u.user_id = bd.user_id
-INNER JOIN weaselbot.combined_beatdowns b
-ON bd.beatdown_id = b.beatdown_id
-INNER JOIN weaselbot.combined_aos a
-ON b.ao_id = a.ao_id
-WHERE b.bd_date > 0
-    AND b.bd_date <= CURDATE()
-;
-"""
+q_flag = case((or_(bd.c.user_id == b.c.q_user_id, bd.c.user_id == b.c.coq_user_id), 1), else_=0).label("q_flag")
 
-# Pull paxminer region data
-with engine.connect() as conn:
-    df_regions = pd.read_sql_query(sql="SELECT * FROM weaselbot.regions WHERE send_aoq_reports = 1;", con=conn)
-    nation_df = pd.read_sql_query(sql=nation_select, con=conn, parse_dates=["date"])
+nation_select = select(
+    u.c.email,
+    a.c.ao_id,
+    a.c.ao_name.label("ao"),
+    b.c.bd_date.label("date"),
+    func.year(b.c.bd_date).label("year_num"),
+    func.month(b.c.bd_date).label("month_num"),
+    func.week(b.c.bd_date).label("week_num"),
+    func.day(b.c.bd_date).label("day_num"),
+    q_flag,
+)
+nation_select = nation_select.select_from(
+    bd.join(u, u.c.user_id == bd.c.user_id).join(b, bd.c.beatdown_id == b.c.beatdown_id).join(a, b.c.ao_id == a.c.ao_id)
+)
+nation_select = nation_select.where(and_(b.c.bd_date > 0, b.c.bd_date <= func.curdate()))
 
-# Loop through regions
+
+dtypes = dict(
+    id=pd.Int16Dtype(),
+    paxminer_schema=pd.StringDtype(),
+    slack_token=pd.StringDtype(),
+    send_achievements=pd.Int16Dtype(),
+    send_aoq_reports=pd.Int16Dtype(),
+    achievement_channel=pd.StringDtype(),
+    default_siteq=pd.StringDtype(),
+)
+df_regions = pd.read_sql(select(r).where(r.c.send_aoq_reports == 1), engine, dtype=dtypes)
+
+dtypes = dict(
+    email=pd.StringDtype(),
+    ao_id=pd.StringDtype(),
+    ao=pd.StringDtype(),
+    year_num=pd.Int16Dtype(),
+    month_num=pd.Int16Dtype(),
+    week_num=pd.Int16Dtype(),
+    day_num=pd.Int16Dtype(),
+    q_flag=pd.Int16Dtype(),
+)
+nation_df = pd.read_sql(nation_select, engine, parse_dates="date", dtype=dtypes)
+
 for _, region_row in df_regions.iterrows():
-    db = region_row["paxminer_schema"]
     slack_secret = region_row["slack_token"]
 
-    print(f"running {db}...")
+    print(f"running {region_row['paxminer_schema']}...")
 
-    # df = pd.read_csv('data/master_table.csv', parse_dates=['date'])
-    with engine.connect() as conn:
-        user_df = pd.read_sql_table(table_name="users", con=conn, schema=db)
-        df_siteq = pd.read_sql_query(sql=f"SELECT ao, site_q_user_id FROM {db}.aos;", con=conn)
-        paxminer_log_channel = conn.execute(f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';").fetchone()[
-            0
-        ]
+    t = Table("users", metadata, autoload_with=engine, schema=region_row["paxminer_schema"])
+    ao = Table("aos", metadata, autoload_with=engine, schema=region_row["paxminer_schema"])
+
+    user_df = pd.read_sql(select(t), engine)
+    df_siteq = pd.read_sql(select(ao.c.ao, ao.c.site_q_user_id), engine)
+    with engine.begin() as cnxn:
+        cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
+    
 
     df = pd.merge(nation_df, user_df, how="inner", on="email")
     df.rename(columns={"user_id": "pax_id", "user_name": "pax_name"}, inplace=True)
 
     # Derive home_ao
     home_ao_df = df[df["date"] > HOME_AO_CAPTURE].groupby(["pax_id", "ao"], as_index=False)["day_num"].count()
-    # home_ao_df = home_ao_df[home_ao_df['ao'].str.contains('^ao')] # this prevents home AO being assigned to blackops, rucking, etc... could be changed in the future
     home_ao_df.sort_values(["pax_id", "day_num"], ascending=False, inplace=True)
     home_ao_df = home_ao_df.groupby(["pax_id"], as_index=False)["ao"].first()
     home_ao_df.rename(columns={"ao": "home_ao"}, inplace=True)
