@@ -124,8 +124,8 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     update_cols = ("region_name", "max_timestamp", "max_ts_edited")
     region_insert_sql = insert_statement(cr, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(region_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(region_insert_sql)
 
     dtypes = dict(
         region_id=pd.StringDtype(),
@@ -327,8 +327,8 @@ def build_users(
     update_cols = ("user_name", "email", "home_region_id")
     user_insert_sql = insert_statement(cu, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(user_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(user_insert_sql)
 
     df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
@@ -344,8 +344,8 @@ def build_users(
     update_cols = ("user_name", "email", "region_id", "user_id")
     user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(user_dup_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(user_dup_insert_sql)
 
     return df_users_dup
 
@@ -370,8 +370,8 @@ def build_aos(df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.Da
     update_cols = ("ao_name",)
     aos_insert_sql = insert_statement(ca, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(aos_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(aos_insert_sql)
 
     dtypes = {
         "ao_id": pd.StringDtype(),
@@ -493,8 +493,8 @@ def build_beatdowns(
 
     beatdowns_insert_sql = insert_statement(cb, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(beatdowns_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(beatdowns_insert_sql)
 
     dtypes = dict(
         beatdown_id=pd.StringDtype(),
@@ -584,8 +584,8 @@ def build_attendance(
     update_cols = ("beatdown_id", "json")
     attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(attendance_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(attendance_insert_sql)
 
 
 def build_regions(engine: Engine, metadata: MetaData) -> None:
@@ -606,8 +606,8 @@ def build_regions(engine: Engine, metadata: MetaData) -> None:
     update_cols = ("region_name", "max_timestamp", "max_ts_edited")
     region_insert_sql = insert_statement(cr, insert_values, update_cols)
 
-    # with engine.begin() as cnxn:
-    #     cnxn.execute(region_insert_sql)
+    with engine.begin() as cnxn:
+        cnxn.execute(region_insert_sql)
 
 
 def main() -> None:
