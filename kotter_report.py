@@ -95,13 +95,13 @@ dtypes = dict(
 )
 nation_df = pd.read_sql(nation_select, engine, parse_dates="date", dtype=dtypes)
 
-for _, region_row in df_regions.iterrows():
-    slack_secret = region_row["slack_token"]
+for region_row in df_regions.itertuples(index=False):
+    slack_secret = region_row.slack_token
 
-    print(f"running {region_row['paxminer_schema']}...")
+    print(f"running {region_row.paxminer_schema}...")
 
-    t = Table("users", metadata, autoload_with=engine, schema=region_row["paxminer_schema"])
-    ao = Table("aos", metadata, autoload_with=engine, schema=region_row["paxminer_schema"])
+    t = Table("users", metadata, autoload_with=engine, schema=region_row.paxminer_schema)
+    ao = Table("aos", metadata, autoload_with=engine, schema=region_row.paxminer_schema)
 
     user_df = pd.read_sql(select(t), engine, dtype=pd.StringDtype(), parse_dates="start_date")
     user_df.app = user_df.app.astype(pd.Int64Dtype())
@@ -209,20 +209,20 @@ for _, region_row in df_regions.iterrows():
             except Exception as e:
                 print(f"Error sending message to {siteq}: {e}")
 
-    sMessage = build_kotter_report(df_posts, df_qs, region_row["default_siteq"])
+    sMessage = build_kotter_report(df_posts, df_qs, region_row.default_siteq)
     sMessage += "\n\nNote: If you have listed your site Qs on your aos table, this information will have gone out to them as well."
     try:
-        response = slack_client.chat_postMessage(channel=region_row["default_siteq"], text=sMessage, link_names=True)
-        print(f'Sent {region_row["default_siteq"]} this message:\n\n{sMessage}\n\n')
+        response = slack_client.chat_postMessage(channel=region_row.default_siteq, text=sMessage, link_names=True)
+        print(f'Sent {region_row.default_siteq} this message:\n\n{sMessage}\n\n')
     except Exception as e:
         print(f"hit exception {e}")
         print(e.response)
         if e.response.get("error") == "not_in_channel":
             try:
                 print("trying to join channel")
-                slack_client.conversations_join(channel=region_row["default_siteq"])
+                slack_client.conversations_join(channel=region_row.default_siteq)
                 response = slack_client.chat_postMessage(
-                    channel=region_row["default_siteq"], text=sMessage, link_names=True
+                    channel=region_row.default_siteq, text=sMessage, link_names=True
                 )
                 print("sent this message:\n\n{sMessage}\n\n")
             except Exception as e:
@@ -236,3 +236,5 @@ for _, region_row in df_regions.iterrows():
     except Exception as e:
         print(f"Error sending message to {paxminer_log_channel}: {e}")  # TODO: add self to channel
     print("All done!")
+
+engine.dispose()
