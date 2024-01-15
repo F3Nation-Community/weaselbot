@@ -152,16 +152,19 @@ for _, region_row in df_regions.iterrows():
     )
 
     # Pull list of guys not posting
-    pull_week = df6.loc[df6.date < datetime.today()]["date"].max()  # this will only work as expected if you run on Sunday because of the rolling count
+    pull_week = df6.loc[df6.date < datetime.today()][
+        "date"
+    ].max()  # this will only work as expected if you run on Sunday because of the rolling count
     df7 = df6[(df6["post_count_rolling"] == 0) & (df6["date"] == pull_week) & (df6["post_count_rolling_stop"] > 0)]
 
     # Pull pull list of guys not Q-ing
-    df8 = (df.loc[df["q_flag"] == True]  # noqa: E712
-           .groupby(["pax_id"], as_index=False)["date"]
-           .max()
-           .rename(columns={"date": "last_q_date"})
-           .assign(days_since_last_q=lambda x: (datetime.today() - x.last_q_date).dt.days)
-                   )
+    df8 = (
+        df.loc[df["q_flag"] == True]  # noqa: E712
+        .groupby(["pax_id"], as_index=False)["date"]
+        .max()
+        .rename(columns={"date": "last_q_date"})
+        .assign(days_since_last_q=lambda x: (datetime.today() - x.last_q_date).dt.days)
+    )
     df9 = pd.merge(df6, df8, how="left")
     df10 = df9[
         (df9["post_count_rolling"] > 0)
@@ -173,9 +176,13 @@ for _, region_row in df_regions.iterrows():
     ]
 
     # Merge siteq list
-    df_posts = pd.merge(df7, df_siteq, how="left", left_on="home_ao", right_on="ao").loc[lambda x: x.home_ao != "unknown"]
-    df_qs = pd.merge(df10, df_siteq, how="left", left_on="home_ao", right_on="ao")  # remove NAs... these are guys who haven't posted to a regular AO in the home_ao period
-    
+    df_posts = pd.merge(df7, df_siteq, how="left", left_on="home_ao", right_on="ao").loc[
+        lambda x: x.home_ao != "unknown"
+    ]
+    df_qs = pd.merge(
+        df10, df_siteq, how="left", left_on="home_ao", right_on="ao"
+    )  # remove NAs... these are guys who haven't posted to a regular AO in the home_ao period
+
     for df_ in [df_posts, df_qs]:
         mask = df_["site_q_user_id"].isna()
         df_.loc[mask, "site_q_user_id"] = region_row.default_siteq
