@@ -103,63 +103,65 @@ for _, region_row in df_regions.iterrows():
     t = Table("users", metadata, autoload_with=engine, schema=region_row["paxminer_schema"])
     ao = Table("aos", metadata, autoload_with=engine, schema=region_row["paxminer_schema"])
 
-    user_df = pd.read_sql(select(t), engine)
-    df_siteq = pd.read_sql(select(ao.c.ao, ao.c.site_q_user_id), engine)
+    user_df = pd.read_sql(select(t), engine, dtype=pd.StringDtype(), parse_dates="start_date")
+    user_df.app = user_df.app.astype(pd.Int64Dtype())
+    df_siteq = pd.read_sql(select(ao.c.ao, ao.c.site_q_user_id), engine, dtype=pd.StringDtype())
+
     with engine.begin() as cnxn:
         paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
 
     df = pd.merge(nation_df, user_df, how="inner", on="email")
-    df.rename(columns={"user_id": "pax_id", "user_name": "pax_name"}, inplace=True)
+    df.rename({"user_id": "pax_id", "user_name": "pax_name"}, axis=1, inplace=True)
 
-    home_ao_df = df[df["date"] > HOME_AO_CAPTURE].groupby(["pax_id", "ao"], as_index=False)["day_num"].count()
-    home_ao_df.sort_values(["pax_id", "day_num"], ascending=False, inplace=True)
-    home_ao_df = home_ao_df.groupby(["pax_id"], as_index=False)["ao"].first()
-    home_ao_df.rename(columns={"ao": "home_ao"}, inplace=True)
+    home_ao_df = (
+        df.loc[df.date > HOME_AO_CAPTURE]
+        .groupby(["pax_id"])["ao"]
+        .value_counts()
+        .groupby(level=0)
+        .head(1)
+        .reset_index()
+        .drop("count", axis=1)
+        .rename({"ao": "home_ao"}, axis=1)
+    )
 
-    # Merge home AO and Site Q
     df = pd.merge(df, home_ao_df, how="left")
-    df["home_ao"].fillna("unknown", inplace=True)
-
-    # Group by PAX / week
-    df2 = df.groupby(["year_num", "week_num", "pax_id", "home_ao"], as_index=False).agg({"day_num": np.count_nonzero})
-    df2.rename(columns={"day_num": "post_count"}, inplace=True)
-
-    # Pull list of weeks
-    df3 = df.groupby(["year_num", "week_num"], as_index=False).agg({"date": min})
-
-    # Pull list of PAX
+    df.home_ao.fillna("unknown", inplace=True)
+    df2 = (
+        df.groupby(["year_num", "week_num", "pax_id", "home_ao"], as_index=False)
+        .agg({"day_num": np.count_nonzero})
+        .rename(columns={"day_num": "post_count"})
+    )
+    df3 = df.groupby(["year_num", "week_num"], as_index=False)["date"].min()
     df4 = df.groupby(["pax_id", "home_ao"], as_index=False)["ao"].count()
+    df5 = pd.merge(df4, df3, how="cross").drop("ao", axis=1)
+    df6 = (
+        pd.merge(df5, df2, how="left")
+        .dropna(
+            subset=[
+                "date",
+            ]
+        )
+        .fillna(0)
+        .sort_values(["pax_id", "date"])
+        .assign(
+            post_count_rolling=lambda x: x.post_count.rolling(NO_POST_THRESHOLD, min_periods=1).sum(),
+            post_count_rolling_stop=lambda x: x.post_count.rolling(
+                NO_POST_THRESHOLD + REMINDER_WEEKS, min_periods=1
+            ).sum(),
+        )
+    )
 
-    # Cartesian merge
-    df5 = pd.merge(df4, df3, how="cross")
-    df5.drop(columns=["ao"], axis=1, inplace=True)
-
-    # Join to post counts
-    df6 = pd.merge(df5, df2, how="left")
-    df6.dropna(subset=["date"], inplace=True)
-    df6.fillna(0, inplace=True)
-    df6.sort_values(["pax_id", "date"], inplace=True)
-
-    # Add rolling sums
-    df6["post_count_rolling"] = df6["post_count"].rolling(NO_POST_THRESHOLD, min_periods=1).sum()
-    df6["post_count_rolling_stop"] = df6["post_count"].rolling(NO_POST_THRESHOLD + REMINDER_WEEKS, min_periods=1).sum()
-    df6["post_count_rolling"] = df6["post_count"].rolling(NO_POST_THRESHOLD, min_periods=1).sum()
-
-    # Pull pull list of guys not posting
-    pull_week = df6[df6["date"] < str(date.today())][
-        "date"
-    ].max()  # this will only work as expected if you run on Sunday
-    # pull_week = datetime(2021, 11, 29, 0, 0, 0)
+    # Pull list of guys not posting
+    pull_week = df6.loc[df6.date < datetime.today()]["date"].max()  # this will only work as expected if you run on Sunday because of the rolling count
     df7 = df6[(df6["post_count_rolling"] == 0) & (df6["date"] == pull_week) & (df6["post_count_rolling_stop"] > 0)]
 
     # Pull pull list of guys not Q-ing
-    df8 = (
-        df[df["q_flag"] == True]  # noqa: E712
-        .groupby(["pax_id"], as_index=False)["date"]
-        .max()
-        .rename(columns={"date": "last_q_date"})
-    )
-    df8["days_since_last_q"] = (datetime.today() - df8["last_q_date"]).dt.days
+    df8 = (df.loc[df["q_flag"] == True]  # noqa: E712
+           .groupby(["pax_id"], as_index=False)["date"]
+           .max()
+           .rename(columns={"date": "last_q_date"})
+           .assign(days_since_last_q=lambda x: (datetime.today() - x.last_q_date).dt.days)
+                   )
     df9 = pd.merge(df6, df8, how="left")
     df10 = df9[
         (df9["post_count_rolling"] > 0)
@@ -171,14 +173,12 @@ for _, region_row in df_regions.iterrows():
     ]
 
     # Merge siteq list
-    df_posts = pd.merge(df7, df_siteq, how="left", left_on="home_ao", right_on="ao")
-    df_qs = pd.merge(df10, df_siteq, how="left", left_on="home_ao", right_on="ao")
-    df_posts = df_posts[
-        ~(df_posts["home_ao"] == "unknown")
-    ]  # remove NAs... these are guys who haven't posted to a regular AO in the home_ao period
-    df_posts.loc[df_posts["site_q_user_id"].isna(), "site_q_user_id"] = region_row["default_siteq"]
-    df_qs = df_qs[~(df_qs["home_ao"] == "unknown")]
-    df_qs.loc[df_qs["site_q_user_id"].isna(), "site_q_user_id"] = region_row["default_siteq"]
+    df_posts = pd.merge(df7, df_siteq, how="left", left_on="home_ao", right_on="ao").loc[lambda x: x.home_ao != "unknown"]
+    df_qs = pd.merge(df10, df_siteq, how="left", left_on="home_ao", right_on="ao")  # remove NAs... these are guys who haven't posted to a regular AO in the home_ao period
+    
+    for df_ in [df_posts, df_qs]:
+        mask = df_["site_q_user_id"].isna()
+        df_.loc[mask, "site_q_user_id"] = region_row.default_siteq
 
     # instantiate Slack client
     ssl_context = ssl.create_default_context()
