@@ -106,8 +106,7 @@ for _, region_row in df_regions.iterrows():
     user_df = pd.read_sql(select(t), engine)
     df_siteq = pd.read_sql(select(ao.c.ao, ao.c.site_q_user_id), engine)
     with engine.begin() as cnxn:
-        cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
-    
+        paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
 
     df = pd.merge(nation_df, user_df, how="inner", on="email")
     df.rename(columns={"user_id": "pax_id", "user_name": "pax_name"}, inplace=True)
