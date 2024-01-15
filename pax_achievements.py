@@ -1,6 +1,5 @@
 #!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
-import os
 import re
 import ssl
 import time
@@ -9,100 +8,106 @@ from functools import reduce
 
 import numpy as np
 import pandas as pd
-from dotenv import load_dotenv
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.slack_response import SlackResponse
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, Table
+from sqlalchemy.sql import select, func, case, and_, or_
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+from f3_data_builder import mysql_connection
 
-# Inputs
 year_select = date.today().year
+engine = mysql_connection()
+metadata = MetaData()
+metadata.reflect(engine, schema="weaselbot")
 
-# Gather creds
-dummy = load_dotenv()
-DATABASE_USER = os.environ.get("DATABASE_USER")
-DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD")
-DATABASE_HOST = os.environ.get("DATABASE_HOST")
-engine = create_engine(f"mysql+mysqlconnector://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:3306")
 
-# Pull nation data
-sql_select = f"""-- sql
-SELECT u.email AS email,
-    a.ao_id AS ao_id,
-    a.ao_name as ao,
-    b.bd_date AS date,
-    YEAR(b.bd_date) AS year_num,
-    MONTH(b.bd_date) AS month_num,
-    WEEK(b.bd_date) AS week_num,
-    DAY(b.bd_date) AS day_num,
-    CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag,
-    b.backblast,
-    r.schema_name as home_region
-FROM weaselbot.combined_attendance bd
-INNER JOIN weaselbot.combined_users u
-ON bd.user_id = u.user_id
-INNER JOIN weaselbot.combined_beatdowns b
-ON bd.beatdown_id = b.beatdown_id
-INNER JOIN weaselbot.combined_aos a
-ON b.ao_id = a.ao_id
-INNER JOIN weaselbot.combined_regions r
-ON u.home_region_id = r.region_id
-WHERE YEAR(b.bd_date) = {year_select}
-    AND b.bd_date <= CURDATE()
-;
-"""
+def nation_sql(metadata):
+    u = metadata.tables["weaselbot.combined_users"]
+    a = metadata.tables["weaselbot.combined_aos"]
+    b = metadata.tables["weaselbot.combined_beatdowns"]
+    bd = metadata.tables["weaselbot.combined_attendance"]
+    r = metadata.tables["weaselbot.combined_regions"]
 
-# Pull paxminer region data
-with engine.connect() as conn:
-    df_regions = pd.read_sql_query(sql="SELECT * FROM weaselbot.regions WHERE send_achievements = 1;", con=conn)
-    nation_df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
+    sql = select(
+        u.c.email,
+        a.c.ao_id,
+        a.c.ao_name.label("ao"),
+        b.c.bd_date.label(date),
+        func.year(b.c.bd_date).label("year_num"),
+        func.month(b.c.bd_date).label("month_num"),
+        func.week(b.c.bd_date).label("week_num"),
+        func.day(b.c.bd_date).label("day_num"),
+        func.case((or_(bd.c.user_id == b.c.q_user_id, bd.c.user_id == b.c.coq_user_id), 1), else_=0).label("q_flag"),
+        b.c.backblast,
+        r.c.schema_name.label("home_region"),
+    )
+    sql = sql.select_from(
+        bd.join(u, bd.c.user_id == u.c.user_id)
+        .join(b, bd.c.beatdown_id == b.c.beatdown_id)
+        .join(a, b.c.ao_id == a.c.ao_id)
+        .join(r, u.c.home_region_id == r.c.region_id)
+    )
+    sql = sql.where(and_(func.year(b.c.bd_date) == year_select, b.c.bd_date <= func.curdate()))
+
+    return sql
+
+
+def region_sql(metadata):
+    t = metadata.tables["weaselbot.regions"]
+    return select(t).where(t.c.send_achievements == 1)
+
+
+def award_view(db, metadata, year_select):
+    aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=db)
+    al = Table("achievements_list", metadata, autoload_with=engine, schema=db)
+
+    sql = (
+        select(aa, al.c.code)
+        .select_from(aa.join(al, aa.c.achievement_id == al.c.id))
+        .where(func.year(aa.c.date_awarded) == year_select)
+    )
+    return sql
+
+
+with engine.begin() as cnxn:
+    df_regions = pd.read_sql(region_sql(), cnxn)
+    nation_df = pd.read_sql(nation_sql(), cnxn, parse_dates="date")
 
 # Loop through regions
-for _, region_row in df_regions.iterrows():
-    db = region_row["paxminer_schema"]
-    slack_secret = region_row["slack_token"]
-    achievement_channel = region_row["achievement_channel"]
+for region_row in df_regions.itertuples(index=False):
+    db = region_row.paxminer_schema
+    slack_secret = region_row.slack_token
+    achievement_channel = region_row.achievement_channel
 
     print(f"running {db}...")
     try:
-        awarded_view = f"""-- sql
-        SELECT aa.*, al.code
-        FROM {db}.achievements_awarded aa
-        INNER JOIN {db}.achievements_list al
-        ON aa.achievement_id = al.id
-        WHERE YEAR(aa.date_awarded) = {year_select}
-        ;
-        """
+        awarded_view = award_view(db, metadata, year_select)
 
         # Import data from SQL
-        with engine.connect() as conn:
-            # df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
-            user_table = pd.read_sql_table(table_name="users", schema=db, con=conn)
-            achievement_list = pd.read_sql_table(table_name="achievements_list", schema=db, con=conn)
-            awarded_table_raw = pd.read_sql_query(sql=awarded_view, con=conn, parse_dates=["date_awarded"])
+        with engine.begin() as cnxn:
+            u = Table("users", metadata, autoload_with=engine, schema=db)
+            user_table = pd.read_sql(u, cnxn)
+            awarded_table_raw = pd.read_sql(awarded_view, cnxn, parse_dates=["date_awarded"])
+            achievement_list = pd.read_sql(select(metadata.tables[f"{db}.achievements_list"]), cnxn)
 
-            paxminer_log_channel = conn.execute(
-                f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';"
-            ).fetchone()
-            if paxminer_log_channel is not None:
-                paxminer_log_channel = paxminer_log_channel[0]
+            ao = Table("aos", metadata, autoload_with=engine, schema=db)
+            paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
 
-        # Merge in user table
-        df = pd.merge(nation_df, user_table, on=["email"], how="inner")
-        df = df[df["home_region"] == db]
-        df.rename(columns={"user_id": "pax_id", "user_name": "pax"}, inplace=True)
+        df = (pd.merge(nation_df, user_table, on="email", how="inner")
+              .loc[lambda x: x.home_region == db]
+              .rename({"user_id": "pax_id", "user_name": "pax"}, axis=1)
+        )
 
         # Create flags for different event types (beatdowns, blackops, qsource, etc)
-        df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "").str.split("\n", expand=True).iloc[:, 0]
-        # df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "")
-        # df["backblast_title"] = df["backblast_title"].str.split("\n", expand=True).iloc[:, 0]
+        df["backblast_title"] = (
+            df["backblast"].fillna("").str.replace("Slackblast: \n", "").str.split("\n", expand=True).iloc[:, 0]
+        )
 
-        df["ruck_flag"] = df["backblast_title"].str.contains(
+        df["ruck_flag"] = df.backblast_title.str.contains(
             r"\b(?:pre-ruck|preruck|rucking)\b", flags=re.IGNORECASE, regex=True
         )
-        df.loc[df["ao"] == "rucking", "ruck_flag"] = True
+        df.loc[df.ao == "rucking", "ruck_flag"] = True
 
         df["qsource_flag"] = (
             df["backblast_title"].str.contains(r"\b(?:qsource)\b", flags=re.IGNORECASE, regex=True)
