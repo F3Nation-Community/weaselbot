@@ -43,6 +43,8 @@ Table(
 with engine.begin() as cnxn:
     metadata.drop_all(cnxn)
     metadata.create_all(cnxn)
+    cnxn.execute(f"ALTER TABLE {schema}.aos ADD site_q_user_id VARCHAR(45) NULL;")
+
 
 u = Table("users", metadata, autoload_with=engine, schema=schema)
 aa = metadata.tables[f"{schema}.achievements_awarded"]
