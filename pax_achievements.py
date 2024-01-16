@@ -105,13 +105,12 @@ for region_row in df_regions.itertuples(index=False):
     )
 
     # Create flags for different event types (beatdowns, blackops, qsource, etc)
-    df["backblast_title"] = (
-        df["backblast"]
+    df["backblast_title"] = (df["backblast"]
         .fillna("")
         .str.replace("Slackblast: \n", "")
-        .str.replace("Backblast:\n", "") # added by JS
-        .str.split("\n", expand=True).iloc[:, 0]
-    )
+        .str.replace("Backblast:\n", "").str.replace("Backblast!", "") # JS added
+        .str.split("\n", expand=True)[0].str.strip()
+)
 
     df["ruck_flag"] = df.backblast_title.str.contains(
         r"\b(?:pre-ruck|preruck|rucking)\b", flags=re.IGNORECASE, regex=True
