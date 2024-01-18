@@ -87,6 +87,7 @@ pytest = "^7.4.4"
 pre-commit = "^3.6.0"
 ruff = "^0.1.11"
 sqlparse = "^0.4.4"
+pyarrow = "^14.0.2"
 
 
 [tool.poetry.group.dev.dependencies]

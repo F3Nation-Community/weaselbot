@@ -224,6 +224,7 @@ def pull_beatdowns(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: Met
 
     with engine.begin() as cnxn:
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
+    df["json"] = df["json"].str.replace("'", '"') # converting the string object to proper JSON 
 
     return df
 
