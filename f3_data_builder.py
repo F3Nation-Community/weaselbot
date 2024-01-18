@@ -2,7 +2,7 @@
 
 import os
 import ast
-from typing import Any, Tuple, Hashable
+from typing import Any, Tuple, Hashable, Iterable
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -143,28 +143,49 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     return df_regions
 
 
-def pull_main_data(
-    df_regions: pd.DataFrame, engine: Engine, metadata: MetaData
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Pull the weaselbot data from each region. Then concat that data into their own dataframes for later analysis and table updates.
-
-    :param df_regions: pandas DataFrame object containing each region's information
-    :type df_regions: pandas.DataFrame object
-    :param engine: SQLAlchemy connection engine to MySQL
-    :type engine: sqlalchemy.engine.Engine object
-    :param metadata: collection of reflected table metadata
-    :type metadata: SQLAlchemy MetaData
-    :rtype: tuple
-    :return: a collection of pandas DataFrames containing user info, AO info, beatdown info and attendance info
-    """
-    df_users_dup_list, df_aos_list, df_beatdowns_list, df_attendance_list = [], [], [], []
-
-    users_dtypes = dict(
+def pull_users(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = dict(
         slack_user_id=pd.StringDtype(), user_name=pd.StringDtype(), email=pd.StringDtype(), region_id=pd.StringDtype()
     )
-    ao_dtypes = dict(slack_channel_id=pd.StringDtype(), ao_name=pd.StringDtype(), region_id=pd.StringDtype())
-    beatdown_dtypes = dict(
+    try:
+        usr = Table("users", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        print(e)
+        return pd.DataFrame(columns=dtypes.keys())
+    
+    sql = select(
+        usr.c.user_id.label("slack_user_id"),
+        usr.c.user_name,
+        usr.c.email,
+        literal_column(f"'{row.region_id}'").label("region_id"),
+    )
+
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+
+    return df
+
+
+def pull_aos(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = dict(slack_channel_id=pd.StringDtype(), ao_name=pd.StringDtype(), region_id=pd.StringDtype())
+    try:
+        ao = Table("aos", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        print(e)
+        return pd.Datarame(columns=dtypes.keys())
+    
+    sql = select(
+        ao.c.channel_id.label("slack_channel_id"),
+        ao.c.ao.label("ao_name"),
+        literal_column(f"'{row.region_id}'").label("region_id"),
+    )
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+
+    return df
+
+def pull_beatdowns(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = dict(
         slack_channel_id=pd.StringDtype(),
         slack_q_user_id=pd.StringDtype(),
         slack_coq_user_id=pd.StringDtype(),
@@ -176,36 +197,13 @@ def pull_main_data(
         backblast=pd.StringDtype(),
         json=pd.StringDtype(),
     )
-    attendance_dtypes = dict(
-        slack_channel_id=pd.StringDtype(),
-        slack_q_user_id=pd.StringDtype(),
-        slack_user_id=pd.StringDtype(),
-        region_id=pd.StringDtype(),
-        json=pd.StringDtype(),
-    )
-
-    for row in df_regions.itertuples(index=False):
-        try:
-            db = row.schema_name.__str__()
-            usr = Table("users", metadata, autoload_with=engine, schema=db)
-            beatdowns = Table("beatdowns", metadata, autoload_with=engine, schema=db)
-            attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=db)
-            ao = Table("aos", metadata, autoload_with=engine, schema=db)
-
-            user_sql = select(
-                usr.c.user_id.label("slack_user_id"),
-                usr.c.user_name,
-                usr.c.email,
-                literal_column(f"'{row.region_id}'").label("region_id"),
-            )
-
-            aos_sql = select(
-                ao.c.channel_id.label("slack_channel_id"),
-                ao.c.ao.label("ao_name"),
-                literal_column(f"'{row.region_id}'").label("region_id"),
-            )
-
-            beatdowns_base_sql = select(
+    try:
+        beatdowns = Table("beatdowns", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        print(e)
+        return pd.DataFrame(columns=dtypes.keys())
+    
+    sql = select(
                 beatdowns.c.ao_id.label("slack_channel_id"),
                 beatdowns.c.bd_date,
                 beatdowns.c.q_user_id.label("slack_q_user_id"),
@@ -218,11 +216,33 @@ def pull_main_data(
                 beatdowns.c.backblast,
                 beatdowns.c.json,
             )
-            beatdowns_sql = beatdowns_base_sql.where(
-                or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited))
-            )
+    
+    if all([not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)]):
+        sql = sql.where(or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited)))
+    elif not isinstance(row.max_timestamp, type(pd.NA)):
+        sql = sql.where(beatdowns.c.timestamp > str(row.max_timestamp))
 
-            attendance_base_sql = select(
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+
+    return df
+
+def pull_attendance(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = dict(
+        slack_channel_id=pd.StringDtype(),
+        slack_q_user_id=pd.StringDtype(),
+        slack_user_id=pd.StringDtype(),
+        region_id=pd.StringDtype(),
+        json=pd.StringDtype(),
+    )
+
+    try:
+        attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        print(e)
+        return pd.DataFrame(columns=dtypes.keys())
+    
+    sql = select(
                 attendance.c.ao_id.label("slack_channel_id"),
                 attendance.c.date.label("bd_date"),
                 attendance.c.q_user_id.label("slack_q_user_id"),
@@ -230,52 +250,15 @@ def pull_main_data(
                 literal_column(f"'{row.region_id}'").label("region_id"),
                 attendance.c.json,
             )
-            attendance_sql = attendance_base_sql.where(
-                or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited))
-            )
+    if all([not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)]):
+        sql = sql.where(or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited)))
+    elif not isinstance(row.max_timestamp, type(pd.NA)):
+        sql = sql.where(attendance.c.timestamp > str(row.max_timestamp))
 
-            beatdowns_no_ts_sql = beatdowns_base_sql
-            attendance_no_ts_sql = attendance_base_sql
-            beatdowns_no_ed_sql = beatdowns_base_sql.where(beatdowns.c.timestamp > str(row.max_timestamp))
-            attendance_no_ed_sql = attendance_base_sql.where(attendance.c.timestamp > str(row.max_timestamp))
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
 
-            with engine.begin() as cnxn:
-                df_users_dup_list.append(pd.read_sql(user_sql, cnxn, dtype=users_dtypes))
-                df_aos_list.append(pd.read_sql(aos_sql, cnxn, dtype=ao_dtypes))
-                if (not isinstance(row.max_timestamp, type(pd.NA))) and (
-                    not isinstance(row.max_ts_edited, type(pd.NA))
-                ):
-                    df_beatdowns_list.append(
-                        pd.read_sql(beatdowns_sql, cnxn, parse_dates="bd_date", dtype=beatdown_dtypes)
-                    )
-                    df_attendance_list.append(
-                        pd.read_sql(attendance_sql, cnxn, parse_dates="bd_date", dtype=attendance_dtypes)
-                    )
-                elif not isinstance(row.max_timestamp, type(pd.NA)):
-                    df_beatdowns_list.append(
-                        pd.read_sql(beatdowns_no_ed_sql, cnxn, parse_dates="bd_date", dtype=beatdown_dtypes)
-                    )
-                    df_attendance_list.append(
-                        pd.read_sql(attendance_no_ed_sql, cnxn, parse_dates="bd_date", dtype=attendance_dtypes)
-                    )
-                elif row.beatdown_count in (pd.NA, 0):
-                    df_beatdowns_list.append(
-                        pd.read_sql(beatdowns_no_ts_sql, cnxn, parse_dates="bd_date", dtype=beatdown_dtypes)
-                    )
-                    df_attendance_list.append(
-                        pd.read_sql(attendance_no_ts_sql, cnxn, parse_dates="bd_date", dtype=attendance_dtypes)
-                    )
-        except Exception as e:
-            print()
-            print(e)
-    df_users_dup = pd.concat(df_users_dup_list)
-    df_aos = pd.concat(df_aos_list)
-    df_beatdowns = pd.concat(df_beatdowns_list)
-    df_attendance = pd.concat(df_attendance_list)
-
-    df_beatdowns.ts_edited = df_beatdowns.ts_edited.replace("NA", pd.NA).astype(pd.Float64Dtype())
-
-    return df_users_dup, df_aos, df_beatdowns, df_attendance
+    return df
 
 
 def build_users(
@@ -621,8 +604,22 @@ def main() -> None:
     metadata.reflect(engine, schema="weaselbot")
     Table("regions", metadata, autoload_with=engine, schema="paxminer")
 
-    df_region = region_queries(engine, metadata)
-    df_users_dup, df_aos, df_beatdowns, df_attendance = pull_main_data(df_region, engine, metadata)
+    df_regions = region_queries(engine, metadata)
+
+    df_users_dup_list, df_aos_list, df_beatdowns_list, df_attendance_list = [], [], [], []
+    for row in df_regions.itertuples(index=False):
+        df_users_dup_list.append(pull_users(row, engine, metadata))
+        df_aos_list.append(pull_aos(row, engine, metadata))
+        df_beatdowns_list.append(pull_beatdowns(row, engine, metadata))
+        df_attendance_list.append(pull_attendance(row, engine, metadata))
+
+    df_users_dup = pd.concat([x for x in df_users_dup_list if not x.empty])
+    df_aos = pd.concat([x for x in df_aos_list if not x.empty])
+    df_beatdowns = pd.concat([x for x in df_beatdowns_list if not x.empty])
+    df_attendance = pd.concat([x for x in df_attendance_list if not x.empty])
+
+    df_beatdowns.ts_edited = df_beatdowns.ts_edited.replace("NA", pd.NA).astype(pd.Float64Dtype())
+
     print(f"beatdowns to process: {len(df_beatdowns)}")
     df_users_dup = build_users(df_users_dup, df_attendance, engine, metadata)
     df_aos = build_aos(df_aos, engine, metadata)
