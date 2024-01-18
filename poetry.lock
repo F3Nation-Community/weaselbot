@@ -397,13 +397,13 @@ files = [
 
 [[package]]
 name = "ipykernel"
-version = "6.28.0"
+version = "6.29.0"
 description = "IPython Kernel for Jupyter"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "ipykernel-6.28.0-py3-none-any.whl", hash = "sha256:c6e9a9c63a7f4095c0a22a79f765f079f9ec7be4f2430a898ddea889e8665661"},
-    {file = "ipykernel-6.28.0.tar.gz", hash = "sha256:69c11403d26de69df02225916f916b37ea4b9af417da0a8c827f84328d88e5f3"},
+    {file = "ipykernel-6.29.0-py3-none-any.whl", hash = "sha256:076663ca68492576f051e4af7720d33f34383e655f2be0d544c8b1c9de915b2f"},
+    {file = "ipykernel-6.29.0.tar.gz", hash = "sha256:b5dd3013cab7b330df712891c96cd1ab868c27a7159e606f762015e9bf8ceb3f"},
 ]
 
 [package.dependencies]
@@ -426,17 +426,17 @@ cov = ["coverage[toml]", "curio", "matplotlib", "pytest-cov", "trio"]
 docs = ["myst-parser", "pydata-sphinx-theme", "sphinx", "sphinx-autodoc-typehints", "sphinxcontrib-github-alt", "sphinxcontrib-spelling", "trio"]
 pyqt5 = ["pyqt5"]
 pyside6 = ["pyside6"]
-test = ["flaky", "ipyparallel", "pre-commit", "pytest (>=7.0)", "pytest-asyncio", "pytest-cov", "pytest-timeout"]
+test = ["flaky", "ipyparallel", "pre-commit", "pytest (>=7.0)", "pytest-asyncio (==0.23.2)", "pytest-cov", "pytest-timeout"]
 
 [[package]]
 name = "ipython"
-version = "8.19.0"
+version = "8.20.0"
 description = "IPython: Productive Interactive Computing"
 optional = false
 python-versions = ">=3.10"
 files = [
-    {file = "ipython-8.19.0-py3-none-any.whl", hash = "sha256:2f55d59370f59d0d2b2212109fe0e6035cfea436b1c0e6150ad2244746272ec5"},
-    {file = "ipython-8.19.0.tar.gz", hash = "sha256:ac4da4ecf0042fb4e0ce57c60430c2db3c719fa8bdf92f8631d6bd8a5785d1f0"},
+    {file = "ipython-8.20.0-py3-none-any.whl", hash = "sha256:bc9716aad6f29f36c449e30821c9dd0c1c1a7b59ddcc26931685b87b4c569619"},
+    {file = "ipython-8.20.0.tar.gz", hash = "sha256:2f21bd3fc1d51550c89ee3944ae04bbc7bc79e129ea0937da6e6c68bfdbf117a"},
 ]
 
 [package.dependencies]
@@ -506,13 +506,13 @@ test = ["coverage", "ipykernel (>=6.14)", "mypy", "paramiko", "pre-commit", "pyt
 
 [[package]]
 name = "jupyter-core"
-version = "5.7.0"
+version = "5.7.1"
 description = "Jupyter core package. A base package on which Jupyter projects rely."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "jupyter_core-5.7.0-py3-none-any.whl", hash = "sha256:16eea462f7dad23ba9f86542bdf17f830804e2028eb48d609b6134d91681e983"},
-    {file = "jupyter_core-5.7.0.tar.gz", hash = "sha256:cb8d3ed92144d2463a3c5664fdd686a3f0c1442ea45df8babb1c1a9e6333fe03"},
+    {file = "jupyter_core-5.7.1-py3-none-any.whl", hash = "sha256:c65c82126453a723a2804aa52409930434598fd9d35091d63dfb919d2b765bb7"},
+    {file = "jupyter_core-5.7.1.tar.gz", hash = "sha256:de61a9d7fc71240f688b2fb5ab659fbb56979458dc66a71decd098e03c79e218"},
 ]
 
 [package.dependencies]
@@ -597,57 +597,54 @@ files = [
 
 [[package]]
 name = "mysql-connector-python"
-version = "8.2.0"
+version = "8.3.0"
 description = "MySQL driver written in Python"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "mysql-connector-python-8.2.0.tar.gz", hash = "sha256:884eba07b4c97edf552a03f5fdca145e0ab4afc3d8677cca20276effca1bea54"},
-    {file = "mysql_connector_python-8.2.0-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:37ca26d7b10580b836f038d42f21ba9e6c88542868d50f55defdbd2dc8e0c0e6"},
-    {file = "mysql_connector_python-8.2.0-cp310-cp310-macosx_12_0_x86_64.whl", hash = "sha256:9d598cc854d1b61eabad7cbf003cfe59970aae80384f5ff18a5cc3fba7becdcc"},
-    {file = "mysql_connector_python-8.2.0-cp310-cp310-manylinux_2_17_aarch64.whl", hash = "sha256:4828a08b738174cacb0985df01120e0a2f0ba534c9d2f67d6613b0930a0fe3cd"},
-    {file = "mysql_connector_python-8.2.0-cp310-cp310-manylinux_2_17_x86_64.whl", hash = "sha256:4b2de9dd56de4874c30364023b59991399222cf73ec744da590cf9eef2623c26"},
-    {file = "mysql_connector_python-8.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:858490bb450b6ae45f415d2205d65a12e84e3445c7b9736e1d1552b685bf237a"},
-    {file = "mysql_connector_python-8.2.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:5d1e1399a9feb45fc8caca6168ff35d31a8124693f24391153764bccc61d15ad"},
-    {file = "mysql_connector_python-8.2.0-cp311-cp311-macosx_12_0_x86_64.whl", hash = "sha256:a0308455462d4078baf516255662a46611eb12fc8d83d40dea38df3032d2566d"},
-    {file = "mysql_connector_python-8.2.0-cp311-cp311-manylinux_2_17_aarch64.whl", hash = "sha256:539300944c36566e91d131e106dbf0a90cde697ba88247a820f5af9caea2e5c2"},
-    {file = "mysql_connector_python-8.2.0-cp311-cp311-manylinux_2_17_x86_64.whl", hash = "sha256:66d755b94f547d6fcdee9f2256805a4534103363e35d185d3800bfc5274e1f4f"},
-    {file = "mysql_connector_python-8.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:877076f2d71d268fb1b334c85a20ef1d42096ceb6580b25229be4510ebf5a0c5"},
-    {file = "mysql_connector_python-8.2.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:b3f64b1fd2de2e8ed5c9ddd388efce8c6804a8633e18dbb45563a6ae61fbc45b"},
-    {file = "mysql_connector_python-8.2.0-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:e9eacdc3fa5f61276c1549ca7c471a6fde576692881a70dcbac8258314015347"},
-    {file = "mysql_connector_python-8.2.0-cp312-cp312-manylinux_2_17_aarch64.whl", hash = "sha256:230a34df2f3c4f36acf426361914b8552f129538a5e2256d489dca2b39f2f031"},
-    {file = "mysql_connector_python-8.2.0-cp312-cp312-manylinux_2_17_x86_64.whl", hash = "sha256:26e19a4469276870ccc0a04db30c534519f0f774a5949370ff0dc03e7cfc071c"},
-    {file = "mysql_connector_python-8.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:e0b8af0d8c56619875dee4168b1bf77e17a4c1c5e1df935623d264729df70227"},
-    {file = "mysql_connector_python-8.2.0-cp38-cp38-macosx_12_0_x86_64.whl", hash = "sha256:81ac2e409b604bcf2ae6e18bc477f8f6e509ea5004c8dba291afe3d2591f0a3f"},
-    {file = "mysql_connector_python-8.2.0-cp38-cp38-manylinux_2_17_aarch64.whl", hash = "sha256:98606e893bc2343ccc9254f248e4bd5bae18cb03bf4931f3b1657900cd647718"},
-    {file = "mysql_connector_python-8.2.0-cp38-cp38-manylinux_2_17_x86_64.whl", hash = "sha256:e33677bcf6c2bdee7f25f3b38da7a204ab761e3b6763cbb2a413a5300c151059"},
-    {file = "mysql_connector_python-8.2.0-cp38-cp38-win_amd64.whl", hash = "sha256:55a58e57824b03f31befdd460b1dd173a05605bfac25278cd9845f3927c94399"},
-    {file = "mysql_connector_python-8.2.0-cp39-cp39-macosx_12_0_arm64.whl", hash = "sha256:86e30370b6c38a9aaeae042eade5eea95000f6eb93b3802a8a215750a29a48c1"},
-    {file = "mysql_connector_python-8.2.0-cp39-cp39-macosx_12_0_x86_64.whl", hash = "sha256:6ac2c0d9c0248df8a62a736ae9024e1934acdbdf9ce3b2ab57b2a99c1da5f028"},
-    {file = "mysql_connector_python-8.2.0-cp39-cp39-manylinux_2_17_aarch64.whl", hash = "sha256:8c3ed071e19981e8e4ae64c1e3ded050571637a8d519669c03be5e1029c04ef7"},
-    {file = "mysql_connector_python-8.2.0-cp39-cp39-manylinux_2_17_x86_64.whl", hash = "sha256:717472cab0c4d5000cf60797be4d453b60d9ec98ec446c1e3c399fdd43941cb9"},
-    {file = "mysql_connector_python-8.2.0-cp39-cp39-win_amd64.whl", hash = "sha256:df033ca9c76f3a7c3500baea109127bc872c79431e9de691ffce4c2878af2828"},
-    {file = "mysql_connector_python-8.2.0-py2.py3-none-any.whl", hash = "sha256:59d4ea8253edbca7cbd1ac25ed524fcf5d8e34ee7ef5fb1be9e3026852b88126"},
+    {file = "mysql-connector-python-8.3.0.tar.gz", hash = "sha256:e4ff23aa8036b4c5b6463fa81398bb5a528a29f99955de6ba937f0bba57a2fe3"},
+    {file = "mysql_connector_python-8.3.0-cp310-cp310-macosx_13_0_arm64.whl", hash = "sha256:f4ee7e07cca6b744874d60d6b0b24817d9246eb4e8d7269b7ddbe68763a0bd13"},
+    {file = "mysql_connector_python-8.3.0-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:5718e426cf67f041772d4984f709052201883f74190ba6feaddce5cbd3b99e6f"},
+    {file = "mysql_connector_python-8.3.0-cp310-cp310-manylinux_2_17_aarch64.whl", hash = "sha256:0deb38f05057e12af091a48e03a1ff00e213945880000f802879fae5665e7502"},
+    {file = "mysql_connector_python-8.3.0-cp310-cp310-manylinux_2_17_x86_64.whl", hash = "sha256:4be4165e4cd5acb4659261ddc74e9164d2dfa0d795d5695d52f2bf39ea0762fa"},
+    {file = "mysql_connector_python-8.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:51d97bf771519829797556718d81e8b9bdcd0a00427740ca57c085094c8bde17"},
+    {file = "mysql_connector_python-8.3.0-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:5e2c86c60be08c71bae755d811fe8b89ec4feb8117ec3440ebc6c042dd6f06bc"},
+    {file = "mysql_connector_python-8.3.0-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:de74055944b214bff56e1752ec213d705c421414c67a250fb695af0c5c214135"},
+    {file = "mysql_connector_python-8.3.0-cp311-cp311-manylinux_2_17_aarch64.whl", hash = "sha256:b2901391b651d60dab3cc8985df94976fc1ea59fa7324c5b19d0a4177914c8dd"},
+    {file = "mysql_connector_python-8.3.0-cp311-cp311-manylinux_2_17_x86_64.whl", hash = "sha256:55cb57d8098c721abce20fdef23232663977c0e5c87a4d0f9f73466f32c7d168"},
+    {file = "mysql_connector_python-8.3.0-cp311-cp311-win_amd64.whl", hash = "sha256:201e609159b84a247be87b76f5deb79e8c6b368e91f043790e62077f13f3fed8"},
+    {file = "mysql_connector_python-8.3.0-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:c57d02fd6c28be444487e7905ede09e3fecb18377cf82908ca262826369d3401"},
+    {file = "mysql_connector_python-8.3.0-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:9302d774025e76a0fac46bfeea8854b3d6819715a6a16ff23bfcda04218a76b7"},
+    {file = "mysql_connector_python-8.3.0-cp312-cp312-manylinux_2_17_aarch64.whl", hash = "sha256:85fa878fdd6accaeb7d609bd2637c2cfa61592e7f9bdbdc0da18b2fa998d3d5a"},
+    {file = "mysql_connector_python-8.3.0-cp312-cp312-manylinux_2_17_x86_64.whl", hash = "sha256:de0f2f2baa9e091ca8bdc4a091f874f9cd0b84b256389596adb0e032a05fe9f9"},
+    {file = "mysql_connector_python-8.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:27f8be2087627366a44a6831ec68b568c98dbf0f4ceff24682d90c21db6e0f1f"},
+    {file = "mysql_connector_python-8.3.0-cp38-cp38-macosx_13_0_x86_64.whl", hash = "sha256:ec6dc3434a7deef74ab04e8978f6c5e181866a5423006c1b5aec5390a189d28d"},
+    {file = "mysql_connector_python-8.3.0-cp38-cp38-manylinux_2_17_aarch64.whl", hash = "sha256:73ee8bc5f9626c42b37342a91a825cddb3461f6bfbbd6524d8ccfd3293aaa088"},
+    {file = "mysql_connector_python-8.3.0-cp38-cp38-manylinux_2_17_x86_64.whl", hash = "sha256:1db5b48b4ff7d24344217ed2418b162c7677eec86ab9766dc0e5feae39c90974"},
+    {file = "mysql_connector_python-8.3.0-cp38-cp38-win_amd64.whl", hash = "sha256:77bae496566d3da77bb0e938d89243103d20ee41633f626a47785470451bf45c"},
+    {file = "mysql_connector_python-8.3.0-cp39-cp39-macosx_13_0_arm64.whl", hash = "sha256:f7acacdf9fd4260702f360c00952ad9a9cc73e8b7475e0d0c973c085a3dd7b7d"},
+    {file = "mysql_connector_python-8.3.0-cp39-cp39-macosx_13_0_x86_64.whl", hash = "sha256:5f707a9b040ad4700fc447ba955c78b08f2dd5affde37ac2401918f7b6daaba3"},
+    {file = "mysql_connector_python-8.3.0-cp39-cp39-manylinux_2_17_aarch64.whl", hash = "sha256:125714c998a697592bc56cce918a1acc58fadc510a7f588dbef3e53a1920e086"},
+    {file = "mysql_connector_python-8.3.0-cp39-cp39-manylinux_2_17_x86_64.whl", hash = "sha256:7f4f5fa844c19ee3a78c4606f6e138b06829e75469592d90246a290c7befc322"},
+    {file = "mysql_connector_python-8.3.0-cp39-cp39-win_amd64.whl", hash = "sha256:de5c3ee89d9276356f93df003949d3ba4c486f32fec9ec9fd7bc0caab124d89c"},
+    {file = "mysql_connector_python-8.3.0-py2.py3-none-any.whl", hash = "sha256:e868ccc7ad9fbc242546db04673d89cee87d12b8139affd114524553df4e5d6a"},
 ]
 
-[package.dependencies]
-protobuf = ">=4.21.1,<=4.21.12"
-
 [package.extras]
-compression = ["lz4 (>=2.1.6,<=4.3.2)", "zstandard (>=0.12.0,<=0.19.0)"]
 dns-srv = ["dnspython (>=1.16.0,<=2.3.0)"]
+fido2 = ["fido2 (==1.1.2)"]
 gssapi = ["gssapi (>=1.6.9,<=1.8.2)"]
 opentelemetry = ["Deprecated (>=1.2.6)", "typing-extensions (>=3.7.4)", "zipp (>=0.5)"]
 
 [[package]]
 name = "nest-asyncio"
-version = "1.5.8"
+version = "1.5.9"
 description = "Patch asyncio to allow nested event loops"
 optional = false
 python-versions = ">=3.5"
 files = [
-    {file = "nest_asyncio-1.5.8-py3-none-any.whl", hash = "sha256:accda7a339a70599cb08f9dd09a67e0c2ef8d8d6f4c07f96ab203f2ae254e48d"},
-    {file = "nest_asyncio-1.5.8.tar.gz", hash = "sha256:25aa2ca0d2a5b5531956b9e273b45cf664cae2b145101d73b86b199978d48fdb"},
+    {file = "nest_asyncio-1.5.9-py3-none-any.whl", hash = "sha256:61ec07ef052e72e3de22045b81b2cc7d71fceb04c568ba0b2e4b2f9f5231bec2"},
+    {file = "nest_asyncio-1.5.9.tar.gz", hash = "sha256:d1e1144e9c6e3e6392e0fcf5211cb1c8374b5648a98f1ebe48e5336006b41907"},
 ]
 
 [[package]]
@@ -1342,28 +1339,28 @@ cffi = {version = "*", markers = "implementation_name == \"pypy\""}
 
 [[package]]
 name = "ruff"
-version = "0.1.11"
+version = "0.1.13"
 description = "An extremely fast Python linter and code formatter, written in Rust."
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "ruff-0.1.11-py3-none-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:a7f772696b4cdc0a3b2e527fc3c7ccc41cdcb98f5c80fdd4f2b8c50eb1458196"},
-    {file = "ruff-0.1.11-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:934832f6ed9b34a7d5feea58972635c2039c7a3b434fe5ba2ce015064cb6e955"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ea0d3e950e394c4b332bcdd112aa566010a9f9c95814844a7468325290aabfd9"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:9bd4025b9c5b429a48280785a2b71d479798a69f5c2919e7d274c5f4b32c3607"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:e1ad00662305dcb1e987f5ec214d31f7d6a062cae3e74c1cbccef15afd96611d"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", hash = "sha256:4b077ce83f47dd6bea1991af08b140e8b8339f0ba8cb9b7a484c30ebab18a23f"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:c4a88efecec23c37b11076fe676e15c6cdb1271a38f2b415e381e87fe4517f18"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:5b25093dad3b055667730a9b491129c42d45e11cdb7043b702e97125bcec48a1"},
-    {file = "ruff-0.1.11-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:231d8fb11b2cc7c0366a326a66dafc6ad449d7fcdbc268497ee47e1334f66f77"},
-    {file = "ruff-0.1.11-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:09c415716884950080921dd6237767e52e227e397e2008e2bed410117679975b"},
-    {file = "ruff-0.1.11-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:0f58948c6d212a6b8d41cd59e349751018797ce1727f961c2fa755ad6208ba45"},
-    {file = "ruff-0.1.11-py3-none-musllinux_1_2_i686.whl", hash = "sha256:190a566c8f766c37074d99640cd9ca3da11d8deae2deae7c9505e68a4a30f740"},
-    {file = "ruff-0.1.11-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:6464289bd67b2344d2a5d9158d5eb81025258f169e69a46b741b396ffb0cda95"},
-    {file = "ruff-0.1.11-py3-none-win32.whl", hash = "sha256:9b8f397902f92bc2e70fb6bebfa2139008dc72ae5177e66c383fa5426cb0bf2c"},
-    {file = "ruff-0.1.11-py3-none-win_amd64.whl", hash = "sha256:eb85ee287b11f901037a6683b2374bb0ec82928c5cbc984f575d0437979c521a"},
-    {file = "ruff-0.1.11-py3-none-win_arm64.whl", hash = "sha256:97ce4d752f964ba559c7023a86e5f8e97f026d511e48013987623915431c7ea9"},
-    {file = "ruff-0.1.11.tar.gz", hash = "sha256:f9d4d88cb6eeb4dfe20f9f0519bd2eaba8119bde87c3d5065c541dbae2b5a2cb"},
+    {file = "ruff-0.1.13-py3-none-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:e3fd36e0d48aeac672aa850045e784673449ce619afc12823ea7868fcc41d8ba"},
+    {file = "ruff-0.1.13-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:9fb6b3b86450d4ec6a6732f9f60c4406061b6851c4b29f944f8c9d91c3611c7a"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b13ba5d7156daaf3fd08b6b993360a96060500aca7e307d95ecbc5bb47a69296"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:9ebb40442f7b531e136d334ef0851412410061e65d61ca8ce90d894a094feb22"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:226b517f42d59a543d6383cfe03cccf0091e3e0ed1b856c6824be03d2a75d3b6"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", hash = "sha256:5f0312ba1061e9b8c724e9a702d3c8621e3c6e6c2c9bd862550ab2951ac75c16"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:2f59bcf5217c661254bd6bc42d65a6fd1a8b80c48763cb5c2293295babd945dd"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:e6894b00495e00c27b6ba61af1fc666f17de6140345e5ef27dd6e08fb987259d"},
+    {file = "ruff-0.1.13-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9a1600942485c6e66119da294c6294856b5c86fd6df591ce293e4a4cc8e72989"},
+    {file = "ruff-0.1.13-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:ee3febce7863e231a467f90e681d3d89210b900d49ce88723ce052c8761be8c7"},
+    {file = "ruff-0.1.13-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:dcaab50e278ff497ee4d1fe69b29ca0a9a47cd954bb17963628fa417933c6eb1"},
+    {file = "ruff-0.1.13-py3-none-musllinux_1_2_i686.whl", hash = "sha256:f57de973de4edef3ad3044d6a50c02ad9fc2dff0d88587f25f1a48e3f72edf5e"},
+    {file = "ruff-0.1.13-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:7a36fa90eb12208272a858475ec43ac811ac37e91ef868759770b71bdabe27b6"},
+    {file = "ruff-0.1.13-py3-none-win32.whl", hash = "sha256:a623349a505ff768dad6bd57087e2461be8db58305ebd5577bd0e98631f9ae69"},
+    {file = "ruff-0.1.13-py3-none-win_amd64.whl", hash = "sha256:f988746e3c3982bea7f824c8fa318ce7f538c4dfefec99cd09c8770bd33e6539"},
+    {file = "ruff-0.1.13-py3-none-win_arm64.whl", hash = "sha256:6bbbc3042075871ec17f28864808540a26f0f79a4478c357d3e3d2284e832998"},
+    {file = "ruff-0.1.13.tar.gz", hash = "sha256:e261f1baed6291f434ffb1d5c6bd8051d1c2a26958072d38dfbec39b3dda7352"},
 ]
 
 [[package]]
@@ -1395,18 +1392,14 @@ files = [
 
 [[package]]
 name = "slack-sdk"
-version = "3.26.1"
+version = "3.26.2"
 description = "The Slack API Platform SDK for Python"
 optional = false
-python-versions = ">=3.6.0"
+python-versions = ">=3.6"
 files = [
-    {file = "slack_sdk-3.26.1-py2.py3-none-any.whl", hash = "sha256:f80f0d15f0fce539b470447d2a07b03ecdad6b24f69c1edd05d464cf21253a06"},
-    {file = "slack_sdk-3.26.1.tar.gz", hash = "sha256:d1600211eaa37c71a5f92daf4404074c3e6b3f5359a37c93c818b39d88ab4ca0"},
+    {file = "slack_sdk-3.26.2-py2.py3-none-any.whl", hash = "sha256:a10e8ee69ca17d274989d0c2bbecb875f19898da3052d8d57de0898a00b1ab52"},
+    {file = "slack_sdk-3.26.2.tar.gz", hash = "sha256:bcdac5e688fa50e9357ecd00b803b6a8bad766aa614d35d8dc0636f40adc48bf"},
 ]
-
-[package.extras]
-optional = ["SQLAlchemy (>=1.4,<3)", "aiodns (>1.0)", "aiohttp (>=3.7.3,<4)", "boto3 (<=2)", "websocket-client (>=1,<2)", "websockets (>=10,<11)"]
-testing = ["Flask (>=1,<2)", "Flask-Sockets (>=0.2,<1)", "Jinja2 (==3.0.3)", "Werkzeug (<2)", "black (==22.8.0)", "boto3 (<=2)", "click (==8.0.4)", "flake8 (>=5.0.4,<7)", "itsdangerous (==1.1.0)", "moto (>=3,<4)", "psutil (>=5,<6)", "pytest (>=7.0.1,<8)", "pytest-asyncio (<1)", "pytest-cov (>=2,<3)"]
 
 [[package]]
 name = "sqlalchemy"
