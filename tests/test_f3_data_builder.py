@@ -15,9 +15,10 @@ from weaselbot.f3_data_builder import (
     build_attendance,
     build_beatdowns,
     build_regions,
-    build_users
+    build_users,
 )
 from sqlalchemy import MetaData, text
+from sqlalchemy.engine import Engine
 import pandas as pd
 import pytest
 
@@ -35,7 +36,7 @@ def connection():
 
 
 class TestDataBuilder:
-    def test_insert(self, connection):
+    def test_insert(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         t = metadata.tables['weaselbot.combined_aos']
         insert_values = [
@@ -50,7 +51,7 @@ class TestDataBuilder:
         assert all(x in sql_str for x in ["ao_myao1", "'ao_myao2'", "2", "AS new"])
         assert raw_sql == sql_str
 
-    def test_region_subquery(self, connection):
+    def test_region_subquery(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         sql = region_subquery(metadata)
         sql_str = sql.compile(engine, compile_kwargs={'literal_binds': True}).__str__()
@@ -58,37 +59,37 @@ class TestDataBuilder:
         assert sql_str[:6] == "SELECT"
         assert all(x in sql_str for x in ["region_id", "timestamp", "combined_beatdowns", "ao_id", "AS b"])
 
-    def test_paxminer_region_query(self, connection):
+    def test_paxminer_region_query(self, connection: tuple[Engine, MetaData]):
         pass
 
-        def test_weaselbot_region_query(self, connection):
-            engine, metadata = connection
-            cr = metadata.tables["weaselbot.combined_regions"]
-            sql = weaselbot_region_query(metadata, cr)
-            base_weaselbot_region_sql = """
-    SELECT w.*, b.beatdown_count AS beatdown_count
-    FROM weaselbot.combined_regions w
-    LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b
-    ON w.region_id = b.region_id;
-    """
+    def test_weaselbot_region_query(self, connection: tuple[Engine, MetaData]):
+        engine, metadata = connection
+        cr = metadata.tables["weaselbot.combined_regions"]
+        sql = weaselbot_region_query(metadata, cr)
+        base_weaselbot_region_sql = """
+SELECT w.*, b.beatdown_count AS beatdown_count
+FROM weaselbot.combined_regions w
+LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b
+ON w.region_id = b.region_id;
+"""
 
-            with engine.begin() as cnxn:
-                query1 = cnxn.execute(sql)
-                query2 = cnxn.execute(text(base_weaselbot_region_sql))
-                data1, data2 = query1.fetchall(), query2.fetchall()
-                keys1, keys2 = query1.keys(), query2.keys()
+        with engine.begin() as cnxn:
+            query1 = cnxn.execute(sql)
+            query2 = cnxn.execute(text(base_weaselbot_region_sql))
+            data1, data2 = query1.fetchall(), query2.fetchall()
+            keys1, keys2 = query1.keys(), query2.keys()
 
-            for record1, record2 in zip(data1, data2):
-                for v1, v2 in zip(record1, record2):
-                    if type(v1) in (Decimal, float):
-                        assert v1 - Decimal(v2) < 1e9
-                    else:
-                        assert v1 == v2
+        for record1, record2 in zip(data1, data2):
+            for v1, v2 in zip(record1, record2):
+                if type(v1) in (Decimal, float):
+                    assert v1 - Decimal(v2) < 1e9
+                else:
+                    assert v1 == v2
 
-            assert keys1 == keys2
-            assert len(data1) == len(data2)
+        assert keys1 == keys2
+        assert len(data1) == len(data2)
 
-    def test_pull_users(self, connection):
+    def test_pull_users(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         Row = namedtuple("Row", ["region_id", "schema_name"])
         row = Row(18, "f3chicago")
@@ -104,7 +105,7 @@ class TestDataBuilder:
         assert df.shape[1] == df_base.shape[1]
         assert (df == df_base).mean().mean() == 1
 
-    def test_pull_aos(self, connection):
+    def test_pull_aos(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         Row = namedtuple("Row", ["region_id", "schema_name"])
         row = Row(18, "f3chicago")
@@ -120,7 +121,7 @@ class TestDataBuilder:
         assert df.shape[1] == df_base.shape[1]
         assert (df == df_base).mean().mean() == 1
 
-    def test_pull_beatdowns(self, connection):
+    def test_pull_beatdowns(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         dtypes = dict(
             slack_channel_id=pd.StringDtype(),
@@ -175,7 +176,7 @@ class TestDataBuilder:
         assert df.shape[1] == df_base.shape[1]
         assert (df == df_base).fillna(True).mean().mean() == 1
 
-    def test_pull_attendance(self, connection):
+    def test_pull_attendance(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         dtypes = dict(
             slack_channel_id=pd.StringDtype(),
