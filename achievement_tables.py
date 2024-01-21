@@ -1,7 +1,7 @@
 from sqlalchemy import Table, Column, ForeignKey, MetaData, func, text, select
 from sqlalchemy.dialects.mysql import INTEGER, VARCHAR, DATE, DATETIME, insert
 
-from f3_data_builder import mysql_connection
+from weaselbot.f3_data_builder import mysql_connection
 from create_view import view
 
 engine = mysql_connection()
