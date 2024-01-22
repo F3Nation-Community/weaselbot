@@ -6,8 +6,11 @@ from datetime import date, datetime, timedelta
 import numpy as np
 import pandas as pd
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from sqlalchemy import MetaData, Table
-from sqlalchemy.sql import func, select, case, or_, and_
+from sqlalchemy.sql import func, select, case, or_, and_, Selectable
+from sqlalchemy.engine import Engine
+from typing import Any
 
 from weaselbot.f3_data_builder import mysql_connection
 
@@ -36,7 +39,9 @@ def col_cleaner(s: pd.Series) -> pd.Series:
 
 def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str) -> str:
     """Build Slack SiteQ message"""
-    sMessage = [f"Howdy, <@{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",]
+    sMessage = [
+        f"Howdy, <@{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",
+    ]
 
     if len(df_posts) > 0:
         sMessage.append("\n\nThe following PAX haven't posted in a bit.")
@@ -50,14 +55,14 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
 
         for row in df_qs.itertuples(index=False):
             sMessage.append(f"\n- <@{row.pax_id}>")
-            if np.isnan(row.days_since_last_q):
+            if isinstance(row.days_since_last_q, type(pd.NA)):
                 sMessage.append(" (no Q yet!)")
             else:
-                sMessage.append(f" ({str(int(row.days_since_last_q))} days since last Q)")
+                sMessage.append(f" {row.days_since_last_q} days since last Q)")
     return "".join(sMessage)
 
 
-def nation_select(metadata):
+def nation_select(metadata: MetaData) -> Selectable:
     bd = metadata.tables["weaselbot.combined_attendance"].alias("bd")
     u = metadata.tables["weaselbot.combined_users"].alias("u")
     b = metadata.tables["weaselbot.combined_beatdowns"].alias("b")
@@ -84,12 +89,12 @@ def nation_select(metadata):
     return sql.where(and_(b.c.bd_date > 0, b.c.bd_date <= func.curdate()))
 
 
-def region_select(metadata):
+def region_select(metadata: MetaData) -> Selectable:
     r = metadata.tables["weaselbot.regions"]
     return select(r).where(r.c.send_aoq_reports == 1)
 
 
-def region_df(sql, engine):
+def region_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
     dtypes = dict(
         id=pd.Int16Dtype(),
         paxminer_schema=pd.StringDtype(),
@@ -105,7 +110,7 @@ def region_df(sql, engine):
     return df
 
 
-def nation_df(sql, engine):
+def nation_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
     dtypes = dict(
         email=pd.StringDtype(),
         ao_id=pd.StringDtype(),
@@ -123,7 +128,7 @@ def nation_df(sql, engine):
     return df
 
 
-def pull_region_users(row, engine, metadata):
+def pull_region_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     users = Table("users", metadata, autoload_with=engine, schema=row.paxminer_schema)
     df = pd.read_sql(select(users), engine, dtype=pd.StringDtype(), parse_dates="start_date")
     df.app = df.app.astype(pd.Int64Dtype())
@@ -134,7 +139,7 @@ def pull_region_users(row, engine, metadata):
     return df
 
 
-def add_home_ao(df):
+def add_home_ao(df: pd.DataFrame) -> pd.DataFrame:
     home_ao_df = (
         df.loc[df.date > HOME_AO_CAPTURE]
         .groupby(["pax_id"])["ao"]
@@ -149,13 +154,15 @@ def add_home_ao(df):
     return pd.merge(df, home_ao_df, how="left").dropna(subset="home_ao")
 
 
-def pax_appearances(df):
+def pax_appearances(df: pd.DataFrame) -> pd.DataFrame:
     df1 = df.groupby(["year_num", "week_num"], as_index=False)["date"].min()
     df2 = df.groupby(["pax_id", "home_ao"], as_index=False)["ao"].count()
     return pd.merge(df2, df1, how="cross").drop("ao", axis=1)
 
 
-def clean_data(df, row, engine, metadata):
+def clean_data(
+    df: pd.DataFrame, row: tuple[Any, ...], engine: Engine, metadata: MetaData
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df.rename({"user_id": "pax_id", "user_name": "pax_name"}, axis=1, inplace=True)
 
     df = add_home_ao(df)
@@ -191,7 +198,7 @@ def clean_data(df, row, engine, metadata):
     ].max()  # this will only work as expected if you run on Sunday because of the rolling count
     df7 = df6[(df6["post_count_rolling"].isna()) & (df6["date"] == pull_week) & (df6["post_count_rolling_stop"] > 0)]
 
-    # Pull pull list of guys not Q-ing
+    # Pull list of guys not Q-ing
     df8 = (
         df.loc[df["q_flag"] == True]  # noqa: E712
         .groupby(["pax_id"], as_index=False)["date"]
@@ -228,7 +235,13 @@ def clean_data(df, row, engine, metadata):
     return df_siteq, df_posts, df_qs
 
 
-def send_weaselbot_report(row, client, df_siteq, df_posts, df_qs):
+def send_weaselbot_report(
+    row: tuple[Any, ...],
+    client: WebClient,
+    df_siteq: pd.DataFrame,
+    df_posts: pd.DataFrame,
+    df_qs: pd.DataFrame,
+) -> None:
     # Loop through site-qs that have PAX on the list and send the weaselbot report
     for siteq in df_siteq["site_q_user_id"].unique():
         dftemp_posts = df_posts[df_posts["site_q_user_id"] == siteq]
@@ -251,7 +264,7 @@ def send_weaselbot_report(row, client, df_siteq, df_posts, df_qs):
         if row.default_siteq not in df_siteq["site_q_user_id"].unique().tolist():
             client.chat_postMessage(channel=row.default_siteq, text=sMessage, link_names=True)
             print(f'Sent {row.default_siteq} this message:\n\n{sMessage}\n\n')
-    except Exception as e:
+    except SlackApiError as e:
         print(f"hit exception {e}")
         print(e.response)
         if e.response.get("error") == "not_in_channel":
@@ -264,14 +277,14 @@ def send_weaselbot_report(row, client, df_siteq, df_posts, df_qs):
                 print("hit exception joining channel")
 
 
-def notify_yhc(row, engine, metadata, client):
+def notify_yhc(row: tuple[Any], engine: Engine, metadata: MetaData, client: WebClient) -> None:
     ao = metadata.tables[f"{row.paxminer_schema}.aos"]
     with engine.begin() as cnxn:
         paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
     try:
         client.chat_postMessage(channel=paxminer_log_channel, text="Successfully sent kotter reports")
         print(f"Sent {paxminer_log_channel} this message:\n\nSuccessfully sent kotter reports\n\n")
-    except Exception as e:
+    except SlackApiError as e:
         print(f"Error sending message to {paxminer_log_channel}: {e}")  # TODO: add self to channel
     print("All done!")
 
