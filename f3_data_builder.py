@@ -143,7 +143,7 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     return df_regions
 
 
-def pull_users(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = dict(
         slack_user_id=pd.StringDtype(), user_name=pd.StringDtype(), email=pd.StringDtype(), region_id=pd.StringDtype()
     )
@@ -166,7 +166,7 @@ def pull_users(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaDat
     return df
 
 
-def pull_aos(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = dict(slack_channel_id=pd.StringDtype(), ao_name=pd.StringDtype(), region_id=pd.StringDtype())
     try:
         ao = Table("aos", metadata, autoload_with=engine, schema=row.schema_name)
@@ -184,7 +184,7 @@ def pull_aos(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData)
 
     return df
 
-def pull_beatdowns(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = dict(
         slack_channel_id=pd.StringDtype(),
         slack_q_user_id=pd.StringDtype(),
@@ -228,7 +228,7 @@ def pull_beatdowns(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: Met
 
     return df
 
-def pull_attendance(row: Iterable[tuple[Any, ...]], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = dict(
         slack_channel_id=pd.StringDtype(),
         slack_q_user_id=pd.StringDtype(),
@@ -387,8 +387,6 @@ def extract_user_id(slack_user_id) -> NAType | str:
                 return slack_user_id
             elif "team" in slack_user_id:
                 return slack_user_id.split("/team/")[1].split("|")[0]
-            # else:
-            #     pass
 
 
 def build_beatdowns(
