@@ -2,6 +2,7 @@
 
 import ssl
 from datetime import date, datetime, timedelta
+import logging
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,7 @@ from sqlalchemy.sql import func, select, case, or_, and_, Selectable
 from sqlalchemy.engine import Engine
 from typing import Any
 
-from weaselbot.f3_data_builder import mysql_connection
+from f3_data_builder import mysql_connection
 
 
 NO_POST_THRESHOLD = 2
@@ -254,27 +255,27 @@ def send_weaselbot_report(
         if (len(dftemp_posts) + len(dftemp_qs)) > 0:
             try:
                 client.chat_postMessage(channel=siteq, text=sMessage, link_names=True)
-                print(f"Sent {siteq} this message:\n\n{sMessage}\n\n")
+                logging.info(f"Sent {siteq} this message:\n\n{sMessage}\n\n")
             except Exception as e:
-                print(f"Error sending message to {siteq}: {e}")
+                logging.error(f"Error sending message to {siteq} {e}")
 
     sMessage = build_kotter_report(df_posts, df_qs, row.default_siteq)
     sMessage += "\n\nNote: If you have listed your site Qs on your aos table, this information will have gone out to them as well."
     try:
         if row.default_siteq not in df_siteq["site_q_user_id"].unique().tolist():
             client.chat_postMessage(channel=row.default_siteq, text=sMessage, link_names=True)
-            print(f'Sent {row.default_siteq} this message:\n\n{sMessage}\n\n')
+            logging.info(f'Sent {row.default_siteq} this message:\n\n{sMessage}\n\n')
     except SlackApiError as e:
-        print(f"hit exception {e}")
-        print(e.response)
+        logging.error(f"hit exception {e}")
+        logging.error(e.response)
         if e.response.get("error") == "not_in_channel":
             try:
-                print("trying to join channel")
+                logging.info("trying to join channel")
                 client.conversations_join(channel=row.default_siteq)
                 client.chat_postMessage(channel=row.default_siteq, text=sMessage, link_names=True)
-                print("sent this message:\n\n{sMessage}\n\n")
+                logging.info(f"sent this message:\n\n{sMessage}\n\n")
             except Exception as e:
-                print("hit exception joining channel")
+                logging.error("hit exception joining channel")
 
 
 def notify_yhc(row: tuple[Any], engine: Engine, metadata: MetaData, client: WebClient) -> None:
@@ -283,13 +284,16 @@ def notify_yhc(row: tuple[Any], engine: Engine, metadata: MetaData, client: WebC
         paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
     try:
         client.chat_postMessage(channel=paxminer_log_channel, text="Successfully sent kotter reports")
-        print(f"Sent {paxminer_log_channel} this message:\n\nSuccessfully sent kotter reports\n\n")
+        logging.info(f"Sent {paxminer_log_channel} this message:\n\nSuccessfully sent kotter reports\n\n")
     except SlackApiError as e:
-        print(f"Error sending message to {paxminer_log_channel}: {e}")  # TODO: add self to channel
-    print("All done!")
+        logging.error(f"Error sending message to {paxminer_log_channel}: {e}")  # TODO: add self to channel
+    logging.info("All done!")
 
 
 def main():
+    logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s",
+                        level=logging.INFO,
+                        datefmt="%Y-%m-%d %H:%M:%S")
     engine = mysql_connection()
     metadata = MetaData()
     metadata.reflect(engine, schema="weaselbot")
@@ -299,7 +303,7 @@ def main():
     df_nation, df_regions = nation_df(nation_sql, engine), region_df(region_sql, engine)
 
     for row in df_regions.itertuples(index=False):
-        print(f"running {row.paxminer_schema}...")
+        logging.info(f"running {row.paxminer_schema}...")
         user_df = pull_region_users(row, engine, metadata)
         df = pd.merge(df_nation, user_df, how="inner", on="email").dropna(subset='email')
 
