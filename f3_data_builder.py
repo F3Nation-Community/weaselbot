@@ -18,13 +18,15 @@ paxminer_region_sql = """-- sql
 SELECT r.schema_name, r.region AS region_name, b.max_timestamp AS max_timestamp, b.max_ts_edited AS max_ts_edited, b.beatdown_count AS beatdown_count, cr.region_id AS region_id
 FROM paxminer.regions r
 LEFT JOIN weaselbot.combined_regions cr ON r.schema_name = cr.schema_name
-LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b ON cr.region_id = b.region_id;
+LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b ON cr.region_id = b.region_id
+WHERE r.schema_name <> 'f3dc';
 """
 weaselbot_region_sql = """-- sql
 SELECT w.*, b.beatdown_count AS beatdown_count
 FROM weaselbot.combined_regions w
 LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b
-ON w.region_id = b.region_id;
+ON w.region_id = b.region_id
+WHERE w.schema_name <> 'f3dc';
 """
 region_insert_sql = "INSERT INTO weaselbot.combined_regions (schema_name, region_name, max_timestamp, max_ts_edited) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE region_name = VALUES(region_name), max_timestamp = VALUES(max_timestamp), max_ts_edited = VALUES(max_ts_edited);"
 
