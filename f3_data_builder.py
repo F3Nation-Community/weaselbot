@@ -29,7 +29,18 @@ ON w.region_id = b.region_id
 WHERE w.schema_name <> 'f3dc';
 """
 region_insert_sql = "INSERT INTO weaselbot.combined_regions (schema_name, region_name, max_timestamp, max_ts_edited) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE region_name = VALUES(region_name), max_timestamp = VALUES(max_timestamp), max_ts_edited = VALUES(max_ts_edited);"
-
+home_region_sql = """-- sql
+SELECT * FROM (
+SELECT *, ROW_NUMBER() OVER (PARTITION BY email ORDER BY attendance_count DESC) AS rn
+FROM (
+SELECT u.email, ao.region_id AS home_region_id, COUNT(*) AS attendance_count
+FROM weaselbot.combined_users u
+INNER JOIN weaselbot.combined_attendance a ON u.user_id = a.user_id
+INNER JOIN weaselbot.combined_beatdowns b ON a.beatdown_id = b.beatdown_id
+INNER JOIN weaselbot.combined_aos ao ON b.ao_id = ao.ao_id
+GROUP BY 1, 2) z) y
+WHERE rn = 1;
+"""
 
 with engine.connect() as conn:
     df_regions = pd.read_sql(paxminer_region_sql, conn)
@@ -40,6 +51,7 @@ with engine.connect() as conn:
         inserted_data,
     )
     df_regions = pd.read_sql(weaselbot_region_sql, conn)
+    df_home_region = pd.read_sql(home_region_sql, conn)
 
 
 df_users_dup_list = []
@@ -97,11 +109,18 @@ df_users = (
     .sort_values(by="count", ascending=False)
 )
 df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
+
+# update home region using df_home_region
+df_users = df_users.merge(df_home_region[["email", "home_region_id"]], on="email", how="left")
+df_users.loc[df_users["home_region_id"].isna(), "home_region_id"] = df_users[df_users["home_region_id"].isna()][
+    "region_id"
+]
+
 user_insert_sql = "INSERT INTO weaselbot.combined_users (user_name, email, home_region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), home_region_id = VALUES(home_region_id);"
 user_dup_insert_sql = "INSERT INTO weaselbot.combined_users_dup (slack_user_id, user_name, email, region_id, user_id) VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), region_id = VALUES(region_id), user_id = VALUES(user_id);"
 
 with engine.connect() as conn:
-    conn.execute(user_insert_sql, df_users[["user_name", "email", "region_id"]].values.tolist())
+    conn.execute(user_insert_sql, df_users[["user_name", "email", "home_region_id"]].values.tolist())
     df_users = pd.read_sql_table("combined_users", conn, schema="weaselbot")
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left").fillna(0)
     df_users_dup["user_id"] = df_users_dup["user_id"].astype(int)
