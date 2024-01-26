@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 import os
+import logging
 import ast
-from typing import Any, Tuple, Hashable, Iterable
+from typing import Any, Tuple, Hashable
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ def mysql_connection() -> Engine:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     load_dotenv()
     engine = create_engine(
-        f"mysql+mysqlconnector://{os.environ.get('DATABASE_USER')}:{os.environ.get('DATABASE_PASSWORD')}@{os.environ.get('DATABASE_HOST')}:3306"
+        f"mysql+mysqlconnector://{os.getenv('DATABASE_USER')}:{os.getenv('DATABASE_PASSWORD')}@{os.getenv('DATABASE_HOST')}:3306"
     )
     return engine
 
@@ -150,7 +151,7 @@ def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.D
     try:
         usr = Table("users", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
-        print(e)
+        logging.error(f"{e}")
         return pd.DataFrame(columns=dtypes.keys())
     
     sql = select(
@@ -171,7 +172,7 @@ def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.Dat
     try:
         ao = Table("aos", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
-        print(e)
+        logging.error(e)
         return pd.Datarame(columns=dtypes.keys())
     
     sql = select(
@@ -200,7 +201,7 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
     try:
         beatdowns = Table("beatdowns", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
-        print(e)
+        logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
     
     sql = select(
@@ -240,7 +241,7 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
     try:
         attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
-        print(e)
+        logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
     
     sql = select(
@@ -282,7 +283,7 @@ def build_users(
     :return: updated df_users_dup dataframe
     """
 
-    print("building users...")
+    logging.info("building users...")
 
     cu = metadata.tables["weaselbot.combined_users"]
     cud = metadata.tables["weaselbot.combined_users_dup"]
@@ -301,18 +302,25 @@ def build_users(
 
     df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
 
-    dtypes = dict(
-        user_id=pd.StringDtype(), user_name=pd.StringDtype(), email=pd.StringDtype(), home_region_id=pd.StringDtype()
-    )
-
     insert_values = (
         df_users[["user_name", "email", "region_id"]].rename({"region_id": "home_region_id"}, axis=1).to_dict("records")
     )
+
+    for d in insert_values:
+        try:
+            d["home_region_id"] = int(d["home_region_id"])
+        except TypeError:
+            pass
+
     update_cols = ("user_name", "email", "home_region_id")
     user_insert_sql = insert_statement(cu, insert_values, update_cols)
 
     with engine.begin() as cnxn:
         cnxn.execute(user_insert_sql)
+
+    dtypes = dict(
+        user_id=pd.StringDtype(), user_name=pd.StringDtype(), email=pd.StringDtype(), home_region_id=pd.StringDtype()
+    )
 
     df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
@@ -324,6 +332,10 @@ def build_users(
             d["user_id"] = int(d["user_id"])
         except TypeError:
             pass  # allowing NA to flow through
+        try:
+            d["region_id"] = int(d["region_id"])
+        except TypeError:
+            pass
 
     update_cols = ("user_name", "email", "region_id", "user_id")
     user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
@@ -348,9 +360,16 @@ def build_aos(df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.Da
     :rtype: pandas.DataFrame
     :return: updated df_aos dataframe
     """
-    print("building aos...")
+    logging.info("building aos...")
     ca = metadata.tables["weaselbot.combined_aos"]
     insert_values = df_aos[["slack_channel_id", "ao_name", "region_id"]].to_dict("records")
+
+    for d in insert_values:
+        try:
+            d["region_id"] = int(d["region_id"])
+        except TypeError:
+            pass
+
     update_cols = ("ao_name",)
     aos_insert_sql = insert_statement(ca, insert_values, update_cols)
 
@@ -409,7 +428,7 @@ def build_beatdowns(
     :return: updated df_beatdowns dataframe
     """
 
-    print("building beatdowns...")
+    logging.info("building beatdowns...")
     df_beatdowns["slack_q_user_id"] = df_beatdowns["slack_q_user_id"].apply(extract_user_id).astype(pd.StringDtype())
     df_beatdowns["slack_coq_user_id"] = (
         df_beatdowns["slack_coq_user_id"].apply(extract_user_id).astype(pd.StringDtype())
@@ -526,7 +545,7 @@ def build_attendance(
     :return: None
     """
 
-    print("building attendance...")
+    logging.info("building attendance...")
     catt = metadata.tables["weaselbot.combined_attendance"]
     df_attendance["slack_user_id"] = df_attendance["slack_user_id"].apply(extract_user_id).astype(pd.StringDtype())
     df_attendance["slack_q_user_id"] = df_attendance["slack_q_user_id"].apply(extract_user_id).astype(pd.StringDtype())
@@ -563,6 +582,14 @@ def build_attendance(
     df_attendance = df_attendance[df_attendance["user_id"].notnull()]
 
     insert_values = df_attendance[["beatdown_id", "user_id", "json"]].to_dict("records")
+
+    for d in insert_values:
+        for col in ("beatdown_id", "user_id"):
+            try:
+                d[col] = int(d[col])
+            except TypeError:
+                pass
+
     update_cols = ("beatdown_id", "json")
     attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
 
@@ -597,6 +624,9 @@ def main() -> None:
     Main function call. This is the process flow for the original code. If not called from the
     command line, then follow this sequence of steps for proper implementation.
     """
+    logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s",
+                        level=logging.INFO,
+                        datefmt="%Y-%m-%d %H:%M:%S")
     engine = mysql_connection()
     metadata = MetaData()
 
@@ -619,7 +649,7 @@ def main() -> None:
 
     df_beatdowns.ts_edited = df_beatdowns.ts_edited.replace("NA", pd.NA).astype(pd.Float64Dtype())
 
-    print(f"beatdowns to process: {len(df_beatdowns)}")
+    logging.info(f"beatdowns to process: {len(df_beatdowns)}")
     df_users_dup = build_users(df_users_dup, df_attendance, engine, metadata)
     df_aos = build_aos(df_aos, engine, metadata)
     df_beatdowns = build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata)
