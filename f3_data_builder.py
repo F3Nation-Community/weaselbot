@@ -33,12 +33,13 @@ home_region_sql = """-- sql
 SELECT * FROM (
 SELECT *, ROW_NUMBER() OVER (PARTITION BY email ORDER BY attendance_count DESC) AS rn
 FROM (
-SELECT u.email, ao.region_id AS home_region_id, COUNT(*) AS attendance_count
+SELECT ud.user_name, u.email, ao.region_id AS home_region_id, COUNT(*) AS attendance_count
 FROM weaselbot.combined_users u
 INNER JOIN weaselbot.combined_attendance a ON u.user_id = a.user_id
 INNER JOIN weaselbot.combined_beatdowns b ON a.beatdown_id = b.beatdown_id
 INNER JOIN weaselbot.combined_aos ao ON b.ao_id = ao.ao_id
-GROUP BY 1, 2) z) y
+INNER JOIN weaselbot.combined_users_dup ud ON ud.user_id = u.user_id AND ud.region_id = ao.region_id
+GROUP BY 1, 2, 3) z) y
 WHERE rn = 1;
 """
 
@@ -111,9 +112,13 @@ df_users = (
 df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
 
 # update home region using df_home_region
-df_users = df_users.merge(df_home_region[["email", "home_region_id"]], on="email", how="left")
+df_home_region.rename(columns={"user_name": "user_name_home"}, inplace=True)
+df_users = df_users.merge(df_home_region[["user_name_home", "email", "home_region_id"]], on="email", how="left")
 df_users.loc[df_users["home_region_id"].isna(), "home_region_id"] = df_users[df_users["home_region_id"].isna()][
     "region_id"
+]
+df_users.loc[~df_users["user_name_home"].isna(), "user_name"] = df_users[~df_users["user_name_home"].isna()][
+    "user_name_home"
 ]
 
 user_insert_sql = "INSERT INTO weaselbot.combined_users (user_name, email, home_region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), home_region_id = VALUES(home_region_id);"
