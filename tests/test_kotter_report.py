@@ -1,22 +1,12 @@
-from collections import namedtuple
 import os
 from textwrap import TextWrapper
 
-from dotenv import load_dotenv
-from sqlalchemy import MetaData, text
 import pandas as pd
 import pytest
+from sqlalchemy import MetaData
 
-from weaselbot.f3_data_builder import mysql_connection
-from weaselbot.kotter_report import (
-    slack_client,
-    build_kotter_report,
-    nation_select,
-    region_select,
-    add_home_ao,
-    send_weaselbot_report,
-    notify_yhc
-)
+from f3_data_builder import mysql_connection
+from kotter_report import build_kotter_report, nation_select, region_select, slack_client
 
 
 @pytest.fixture(scope="module")
@@ -26,7 +16,6 @@ def connection():
     metadata.reflect(engine, schema="weaselbot")
     # Table("regions", metadata, autoload_with=engine, schema="paxminer")
 
-    load_dotenv()
     client = slack_client(os.getenv("SLACK_TOKEN"))
     yield engine, metadata, client
 
@@ -58,4 +47,22 @@ class TestKotterReport:
     def test_region_select(self, connection):
         engine, metadata, _ = connection
         wrapper = TextWrapper()
-        base_sql = "SELECT * FROM weaselbot.regions WHERE send_aoq_reports = 1;"
+        base_sql = ["SELECT weaselbot.regions.id, weaselbot.regions.paxminer_schema, ",
+                    "weaselbot.regions.slack_token, weaselbot.regions.send_achievements, ",
+                    "weaselbot.regions.send_aoq_reports, ",
+                    "weaselbot.regions.achievement_channel, weaselbot.regions.default_siteq ",
+                    "FROM weaselbot.regions ",
+                    "WHERE weaselbot.regions.send_aoq_reports = 1"
+        ]
+        sql = region_select(metadata)
+        raw_sql = sql.compile(engine, compile_kwargs={'literal_binds': True}).__str__()
+        assert wrapper.fill("".join(base_sql).lower()) == wrapper.fill(raw_sql).replace("  ", " ").lower()
+
+    def test_build_kotter_report(self):
+        df_posts = pd.DataFrame({"pax_id": [1, 2, 3], "col2": ["Me", "Myself", "Irene"]})
+        df_qs = pd.DataFrame({"pax_id": [1, 2, 3], "days_since_last_q": [10, pd.NA, 30]})
+        report = build_kotter_report(df_posts, df_qs, "Sumo")
+        assert "Sumo" in report
+        assert "(no Q yet!)" in report
+        assert "30 days since last Q" in report
+        assert "<@1>" in report

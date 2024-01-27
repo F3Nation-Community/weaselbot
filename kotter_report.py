@@ -58,7 +58,7 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
             if isinstance(row.days_since_last_q, type(pd.NA)):
                 sMessage.append(" (no Q yet!)")
             else:
-                sMessage.append(f" {row.days_since_last_q} days since last Q)")
+                sMessage.append(f" ({row.days_since_last_q} days since last Q)")
     return "".join(sMessage)
 
 
