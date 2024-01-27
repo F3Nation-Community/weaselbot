@@ -1,20 +1,19 @@
 #!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
+import logging
 import ssl
 from datetime import date, datetime, timedelta
-import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from sqlalchemy import MetaData, Table
-from sqlalchemy.sql import func, select, case, or_, and_, Selectable
 from sqlalchemy.engine import Engine
-from typing import Any
+from sqlalchemy.sql import Selectable, and_, case, func, or_, select
 
 from f3_data_builder import mysql_connection
-
 
 NO_POST_THRESHOLD = 2
 REMINDER_WEEKS = 2
@@ -96,15 +95,15 @@ def region_select(metadata: MetaData) -> Selectable:
 
 
 def region_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
-    dtypes = dict(
-        id=pd.Int16Dtype(),
-        paxminer_schema=pd.StringDtype(),
-        slack_token=pd.StringDtype(),
-        send_achievements=pd.Int16Dtype(),
-        send_aoq_reports=pd.Int16Dtype(),
-        achievement_channel=pd.StringDtype(),
-        default_siteq=pd.StringDtype(),
-    )
+    dtypes = {
+        "id": pd.Int16Dtype(),
+        "paxminer_schema": pd.StringDtype(),
+        "slack_token": pd.StringDtype(),
+        "send_achievements": pd.Int16Dtype(),
+        "send_aoq_reports": pd.Int16Dtype(),
+        "achievement_channel": pd.StringDtype(),
+        "default_siteq": pd.StringDtype(),
+    }
     df = pd.read_sql(sql, engine, dtype=dtypes)
     df = df.apply(col_cleaner)
 
@@ -112,16 +111,16 @@ def region_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
 
 
 def nation_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
-    dtypes = dict(
-        email=pd.StringDtype(),
-        ao_id=pd.StringDtype(),
-        ao=pd.StringDtype(),
-        year_num=pd.Int16Dtype(),
-        month_num=pd.Int16Dtype(),
-        week_num=pd.Int16Dtype(),
-        day_num=pd.Int16Dtype(),
-        q_flag=pd.Int16Dtype(),
-    )
+    dtypes = {
+        "email": pd.StringDtype(),
+        "ao_id": pd.StringDtype(),
+        "ao": pd.StringDtype(),
+        "year_num": pd.Int16Dtype(),
+        "month_num": pd.Int16Dtype(),
+        "week_num": pd.Int16Dtype(),
+        "day_num": pd.Int16Dtype(),
+        "q_flag": pd.Int16Dtype(),
+    }
     df = pd.read_sql(sql, engine, parse_dates="date", dtype=dtypes)
     df = df.apply(col_cleaner)
     df.email = df.email.str.lower().replace("none", pd.NA)
@@ -264,7 +263,7 @@ def send_weaselbot_report(
     try:
         if row.default_siteq not in df_siteq["site_q_user_id"].unique().tolist():
             client.chat_postMessage(channel=row.default_siteq, text=sMessage, link_names=True)
-            logging.info(f'Sent {row.default_siteq} this message:\n\n{sMessage}\n\n')
+            logging.info(f"Sent {row.default_siteq} this message:\n\n{sMessage}\n\n")
     except SlackApiError as e:
         logging.error(f"hit exception {e}")
         logging.error(e.response)
@@ -281,7 +280,7 @@ def send_weaselbot_report(
 def notify_yhc(row: tuple[Any], engine: Engine, metadata: MetaData, client: WebClient) -> None:
     ao = metadata.tables[f"{row.paxminer_schema}.aos"]
     with engine.begin() as cnxn:
-        paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == 'paxminer_logs')).scalar()
+        paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
     try:
         client.chat_postMessage(channel=paxminer_log_channel, text="Successfully sent kotter reports")
         logging.info(f"Sent {paxminer_log_channel} this message:\n\nSuccessfully sent kotter reports\n\n")
@@ -291,9 +290,9 @@ def notify_yhc(row: tuple[Any], engine: Engine, metadata: MetaData, client: WebC
 
 
 def main():
-    logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s",
-                        level=logging.INFO,
-                        datefmt="%Y-%m-%d %H:%M:%S")
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+    )
     engine = mysql_connection()
     metadata = MetaData()
     metadata.reflect(engine, schema="weaselbot")
@@ -305,13 +304,13 @@ def main():
     for row in df_regions.itertuples(index=False):
         logging.info(f"running {row.paxminer_schema}...")
         user_df = pull_region_users(row, engine, metadata)
-        df = pd.merge(df_nation, user_df, how="inner", on="email").dropna(subset='email')
+        df = pd.merge(df_nation, user_df, how="inner", on="email").dropna(subset="email")
 
         df_siteq, df_posts, df_qs = clean_data(df, row, engine, metadata)
 
         token = row.slack_token
         client = slack_client(token)
-        send_weaselbot_report(row, client, df_siteq, df_posts, df_qs)
+        # send_weaselbot_report(row, client, df_siteq, df_posts, df_qs)
 
         notify_yhc(row, engine, metadata, client)
 
