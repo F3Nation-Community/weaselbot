@@ -1,18 +1,18 @@
 #!/usr/bin/env python
 
-import os
-import logging
 import ast
-from typing import Any, Tuple, Hashable
+import logging
+import os
+from typing import Any, Hashable, Tuple
 
 import pandas as pd
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, MetaData, Table, literal_column
-from sqlalchemy.sql import select, func, or_
-from sqlalchemy.sql.expression import Insert, Subquery, Selectable
-from sqlalchemy.engine import Engine
-from sqlalchemy.dialects.mysql import insert
 from pandas._libs.missing import NAType
+from sqlalchemy import MetaData, Table, create_engine, literal_column
+from sqlalchemy.dialects.mysql import insert
+from sqlalchemy.engine import Engine
+from sqlalchemy.sql import func, or_, select
+from sqlalchemy.sql.expression import Insert, Selectable, Subquery
 
 
 def mysql_connection() -> Engine:
@@ -128,15 +128,15 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     with engine.begin() as cnxn:
         cnxn.execute(region_insert_sql)
 
-    dtypes = dict(
-        region_id=pd.StringDtype(),
-        region_name=pd.StringDtype(),
-        schema_name=pd.StringDtype(),
-        slack_team_id=pd.StringDtype(),
-        max_timestamp=pd.Float64Dtype(),
-        max_ts_edited=pd.Float64Dtype(),
-        beatdown_count=pd.Int16Dtype(),
-    )
+    dtypes = {
+        "region_id": pd.StringDtype(),
+        "region_name": pd.StringDtype(),
+        "schema_name": pd.StringDtype(),
+        "slack_team_id": pd.StringDtype(),
+        "max_timestamp": pd.Float64Dtype(),
+        "max_ts_edited": pd.Float64Dtype(),
+        "beatdown_count": pd.Int16Dtype(),
+    }
 
     weaselbot_region_sql = weaselbot_region_query(metadata, cr)
     df_regions = pd.read_sql(weaselbot_region_sql, engine, dtype=dtypes)
@@ -145,15 +145,15 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
 
 
 def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
-    dtypes = dict(
-        slack_user_id=pd.StringDtype(), user_name=pd.StringDtype(), email=pd.StringDtype(), region_id=pd.StringDtype()
-    )
+    dtypes = {
+        "slack_user_id": pd.StringDtype(), "user_name": pd.StringDtype(), "email": pd.StringDtype(), "region_id": pd.StringDtype()
+    }
     try:
         usr = Table("users", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
         logging.error(f"{e}")
         return pd.DataFrame(columns=dtypes.keys())
-    
+
     sql = select(
         usr.c.user_id.label("slack_user_id"),
         usr.c.user_name,
@@ -168,13 +168,13 @@ def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.D
 
 
 def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
-    dtypes = dict(slack_channel_id=pd.StringDtype(), ao_name=pd.StringDtype(), region_id=pd.StringDtype())
+    dtypes = {"slack_channel_id": pd.StringDtype(), "ao_name": pd.StringDtype(), "region_id": pd.StringDtype()}
     try:
         ao = Table("aos", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
         logging.error(e)
         return pd.Datarame(columns=dtypes.keys())
-    
+
     sql = select(
         ao.c.channel_id.label("slack_channel_id"),
         ao.c.ao.label("ao_name"),
@@ -186,24 +186,24 @@ def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.Dat
     return df
 
 def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
-    dtypes = dict(
-        slack_channel_id=pd.StringDtype(),
-        slack_q_user_id=pd.StringDtype(),
-        slack_coq_user_id=pd.StringDtype(),
-        pax_count=pd.Int16Dtype(),
-        fng_count=pd.Int16Dtype(),
-        region_id=pd.StringDtype(),
-        timestamp=pd.Float64Dtype(),
-        ts_edited=pd.StringDtype(),
-        backblast=pd.StringDtype(),
-        json=pd.StringDtype(),
-    )
+    dtypes = {
+        "slack_channel_id": pd.StringDtype(),
+        "slack_q_user_id": pd.StringDtype(),
+        "slack_coq_user_id": pd.StringDtype(),
+        "pax_count": pd.Int16Dtype(),
+        "fng_count": pd.Int16Dtype(),
+        "region_id": pd.StringDtype(),
+        "timestamp": pd.Float64Dtype(),
+        "ts_edited": pd.StringDtype(),
+        "backblast": pd.StringDtype(),
+        "json": pd.StringDtype(),
+    }
     try:
         beatdowns = Table("beatdowns", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
         logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
-    
+
     sql = select(
                 beatdowns.c.ao_id.label("slack_channel_id"),
                 beatdowns.c.bd_date,
@@ -217,33 +217,33 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
                 beatdowns.c.backblast,
                 beatdowns.c.json,
             )
-    
-    if all([not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)]):
+
+    if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
         sql = sql.where(or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited)))
     elif not isinstance(row.max_timestamp, type(pd.NA)):
         sql = sql.where(beatdowns.c.timestamp > str(row.max_timestamp))
 
     with engine.begin() as cnxn:
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-    df["json"] = df["json"].str.replace("'", '"') # converting the string object to proper JSON 
+    df["json"] = df["json"].str.replace("'", '"') # converting the string object to proper JSON
 
     return df
 
 def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
-    dtypes = dict(
-        slack_channel_id=pd.StringDtype(),
-        slack_q_user_id=pd.StringDtype(),
-        slack_user_id=pd.StringDtype(),
-        region_id=pd.StringDtype(),
-        json=pd.StringDtype(),
-    )
+    dtypes = {
+        "slack_channel_id": pd.StringDtype(),
+        "slack_q_user_id": pd.StringDtype(),
+        "slack_user_id": pd.StringDtype(),
+        "region_id": pd.StringDtype(),
+        "json": pd.StringDtype(),
+    }
 
     try:
         attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
         logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
-    
+
     sql = select(
                 attendance.c.ao_id.label("slack_channel_id"),
                 attendance.c.date.label("bd_date"),
@@ -252,7 +252,7 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
                 literal_column(f"'{row.region_id}'").label("region_id"),
                 attendance.c.json,
             )
-    if all([not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)]):
+    if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
         sql = sql.where(or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited)))
     elif not isinstance(row.max_timestamp, type(pd.NA)):
         sql = sql.where(attendance.c.timestamp > str(row.max_timestamp))
@@ -318,9 +318,9 @@ def build_users(
     with engine.begin() as cnxn:
         cnxn.execute(user_insert_sql)
 
-    dtypes = dict(
-        user_id=pd.StringDtype(), user_name=pd.StringDtype(), email=pd.StringDtype(), home_region_id=pd.StringDtype()
-    )
+    dtypes = {
+        "user_id": pd.StringDtype(), "user_name": pd.StringDtype(), "email": pd.StringDtype(), "home_region_id": pd.StringDtype()
+    }
 
     df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
@@ -497,18 +497,18 @@ def build_beatdowns(
     with engine.begin() as cnxn:
         cnxn.execute(beatdowns_insert_sql)
 
-    dtypes = dict(
-        beatdown_id=pd.StringDtype(),
-        ao_id=pd.StringDtype(),
-        q_user_id=pd.StringDtype(),
-        coq_user_id=pd.StringDtype(),
-        pax_count=pd.Int16Dtype(),
-        fng_count=pd.Int16Dtype(),
-        timestamp=pd.Float64Dtype(),
-        ts_edited=pd.Float64Dtype(),
-        backblast=pd.StringDtype(),
-        json=pd.StringDtype(),
-    )
+    dtypes = {
+        "beatdown_id": pd.StringDtype(),
+        "ao_id": pd.StringDtype(),
+        "q_user_id": pd.StringDtype(),
+        "coq_user_id": pd.StringDtype(),
+        "pax_count": pd.Int16Dtype(),
+        "fng_count": pd.Int16Dtype(),
+        "timestamp": pd.Float64Dtype(),
+        "ts_edited": pd.Float64Dtype(),
+        "backblast": pd.StringDtype(),
+        "json": pd.StringDtype(),
+    }
 
     df_beatdowns = pd.read_sql(select(cb), engine, parse_dates="bd_date", dtype=dtypes)
     df_beatdowns.q_user_id = (

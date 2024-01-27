@@ -1,26 +1,21 @@
-from decimal import Decimal
 from collections import namedtuple
+from decimal import Decimal
 
-from weaselbot.f3_data_builder import (
-    mysql_connection,
-    region_subquery,
-    paxminer_region_query,
-    weaselbot_region_query,
-    pull_attendance,
-    pull_aos,
-    pull_beatdowns,
-    pull_users,
-    insert_statement,
-    build_aos,
-    build_attendance,
-    build_beatdowns,
-    build_regions,
-    build_users,
-)
-from sqlalchemy import MetaData, text
-from sqlalchemy.engine import Engine
 import pandas as pd
 import pytest
+from sqlalchemy import MetaData, text
+from sqlalchemy.engine import Engine
+
+from f3_data_builder import (
+    insert_statement,
+    mysql_connection,
+    pull_aos,
+    pull_attendance,
+    pull_beatdowns,
+    pull_users,
+    region_subquery,
+    weaselbot_region_query,
+)
 
 
 @pytest.fixture(scope="module")
@@ -38,14 +33,14 @@ def connection():
 class TestDataBuilder:
     def test_insert(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
-        t = metadata.tables['weaselbot.combined_aos']
+        t = metadata.tables["weaselbot.combined_aos"]
         insert_values = [
-            dict(slack_channel_id="abc", ao_name="ao_myao1", region_id=1),
-            dict(slack_channel_id="def", ao_name="ao_myao2", region_id=2),
+            {"slack_channel_id": "abc", "ao_name": "ao_myao1", "region_id": 1},
+            {"slack_channel_id": "def", "ao_name": "ao_myao2", "region_id": 2},
         ]
         update_cols = ("region_id",)
         sql = insert_statement(t, insert_values, update_cols)
-        sql_str = sql.compile(engine, compile_kwargs={'literal_binds': True}).__str__()
+        sql_str = sql.compile(engine, compile_kwargs={"literal_binds": True}).__str__()
         raw_sql = "INSERT INTO weaselbot.combined_aos (slack_channel_id, ao_name, region_id) VALUES ('abc', 'ao_myao1', 1), ('def', 'ao_myao2', 2) AS new ON DUPLICATE KEY UPDATE region_id = new.region_id"
 
         assert all(x in sql_str for x in ["ao_myao1", "'ao_myao2'", "2", "AS new"])
@@ -54,7 +49,7 @@ class TestDataBuilder:
     def test_region_subquery(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
         sql = region_subquery(metadata)
-        sql_str = sql.compile(engine, compile_kwargs={'literal_binds': True}).__str__()
+        sql_str = sql.compile(engine, compile_kwargs={"literal_binds": True}).__str__()
 
         assert sql_str[:6] == "SELECT"
         assert all(x in sql_str for x in ["region_id", "timestamp", "combined_beatdowns", "ao_id", "AS b"])
@@ -123,18 +118,18 @@ ON w.region_id = b.region_id;
 
     def test_pull_beatdowns(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
-        dtypes = dict(
-            slack_channel_id=pd.StringDtype(),
-            slack_q_user_id=pd.StringDtype(),
-            slack_coq_user_id=pd.StringDtype(),
-            pax_count=pd.Int16Dtype(),
-            fng_count=pd.Int16Dtype(),
-            region_id=pd.StringDtype(),
-            timestamp=pd.Float64Dtype(),
-            ts_edited=pd.StringDtype(),
-            backblast=pd.StringDtype(),
-            json=pd.StringDtype(),
-        )
+        dtypes = {
+            "slack_channel_id": pd.StringDtype(),
+            "slack_q_user_id": pd.StringDtype(),
+            "slack_coq_user_id": pd.StringDtype(),
+            "pax_count": pd.Int16Dtype(),
+            "fng_count": pd.Int16Dtype(),
+            "region_id": pd.StringDtype(),
+            "timestamp": pd.Float64Dtype(),
+            "ts_edited": pd.StringDtype(),
+            "backblast": pd.StringDtype(),
+            "json": pd.StringDtype(),
+        }
         Row = namedtuple("Row", ["region_id", "schema_name", "max_timestamp", "max_ts_edited"])
         row1 = Row(18, "f3chicago", 1671647384.278359, 1671647542)
         row2 = Row(18, "f3chicago", 1671647384.278359, pd.NA)
@@ -178,13 +173,13 @@ ON w.region_id = b.region_id;
 
     def test_pull_attendance(self, connection: tuple[Engine, MetaData]):
         engine, metadata = connection
-        dtypes = dict(
-            slack_channel_id=pd.StringDtype(),
-            slack_q_user_id=pd.StringDtype(),
-            slack_user_id=pd.StringDtype(),
-            region_id=pd.StringDtype(),
-            json=pd.StringDtype(),
-        )
+        dtypes = {
+            "slack_channel_id": pd.StringDtype(),
+            "slack_q_user_id": pd.StringDtype(),
+            "slack_user_id": pd.StringDtype(),
+            "region_id": pd.StringDtype(),
+            "json": pd.StringDtype(),
+        }
         Row = namedtuple("Row", ["region_id", "schema_name", "max_timestamp", "max_ts_edited"])
         row1 = Row(18, "f3chicago", 1671647384.278359, 1671647542)
         row2 = Row(18, "f3chicago", 1671647384.278359, pd.NA)
