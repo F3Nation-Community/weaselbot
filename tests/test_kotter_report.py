@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 from sqlalchemy import MetaData
 
-from f3_data_builder import mysql_connection
 from kotter_report import build_kotter_report, nation_select, region_select, slack_client
+from utils import mysql_connection
 
 
 @pytest.fixture(scope="module")

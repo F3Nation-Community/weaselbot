@@ -1,7 +1,6 @@
 #!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
 import logging
-import ssl
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -13,21 +12,13 @@ from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import Selectable, and_, case, func, or_, select
 
-from f3_data_builder import mysql_connection
+from utils import mysql_connection, slack_client
 
 NO_POST_THRESHOLD = 2
 REMINDER_WEEKS = 2
 HOME_AO_CAPTURE = datetime.combine(date.today() + timedelta(weeks=-8), datetime.min.time())
 NO_Q_THRESHOLD_WEEKS = 4
 NO_Q_THRESHOLD_POSTS = 4
-
-
-def slack_client(token: str) -> WebClient:
-    """Instantiate Slack Web client"""
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    return WebClient(token=token, ssl=ssl_context)
 
 
 def col_cleaner(s: pd.Series) -> pd.Series:

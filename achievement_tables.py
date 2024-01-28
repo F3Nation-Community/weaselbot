@@ -1,8 +1,8 @@
-from sqlalchemy import Table, Column, ForeignKey, MetaData, func, text, select
-from sqlalchemy.dialects.mysql import INTEGER, VARCHAR, DATE, DATETIME, insert
+from sqlalchemy import Column, ForeignKey, MetaData, Table, func, select, text
+from sqlalchemy.dialects.mysql import DATE, DATETIME, INTEGER, VARCHAR, insert
 
-from weaselbot.f3_data_builder import mysql_connection
 from create_view import view
+from utils import mysql_connection
 
 engine = mysql_connection()
 metadata = MetaData()
@@ -151,37 +151,6 @@ insert_vals = [
         'verb': 'posting 50 times at an AO',
         'code': 'holding_down_the_fort',
     },
-    # {
-    #     'name': 'You aint Cheatin, you ain’t Tryin',
-    #     'description': 'Complete a GrowRuck',
-    #     'verb': 'completing a GrowRuck',
-    #     'code': 'you_aint_cheatin_you_aint_tryin',
-    # },
-    # {
-    #     'name': 'Fall Down, Get up, Together',
-    #     'description': 'Complete MABA (3100 burpees)',
-    #     'verb': 'completing MABA (>3100 burpees)',
-    #     'code': 'fall_down_get_up_together',
-    # },
-    # {
-    #     'name': 'Redwood Original',
-    #     'description': 'Post for an inaugural beatdown for an AO launch',
-    #     'verb': 'posting at an inaurgural beatdown for an AO launch',
-    #     'code': 'redwood_original',
-    # },
-    # {
-    #     'name': 'In This Together',
-    #     'description': 'Participate in a shieldlock',
-    #     'verb': 'participating in a shieldlock',
-    #     'code': 'in_this_together',
-    # },
-    # {
-    #     'name': 'Sleeper Hold',
-    #     'description': 'EH and VQ 2 FNGs',
-    #     'verb': 'EHing and VQing 2 FNGs',
-    #     'code': 'sleeper_hold',
-    # },
-    # {'name': 'Leave no Man Behind', 'description': 'EH 5 FNGs', 'verb': 'EHing 5 FNGs', 'code': 'leave_no_man_behind'},
 ]
 
 t = metadata.tables[f"{schema}.achievements_list"]

@@ -2,27 +2,17 @@
 
 import ast
 import logging
-import os
 from typing import Any, Hashable, Tuple
 
 import pandas as pd
-from dotenv import load_dotenv
 from pandas._libs.missing import NAType
-from sqlalchemy import MetaData, Table, create_engine, literal_column
+from sqlalchemy import MetaData, Table, literal_column
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import func, or_, select
 from sqlalchemy.sql.expression import Insert, Selectable, Subquery
 
-
-def mysql_connection() -> Engine:
-    """Connect to MySQL. This involves loading environment variables from file"""
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    load_dotenv()
-    engine = create_engine(
-        f"mysql+mysqlconnector://{os.getenv('DATABASE_USER')}:{os.getenv('DATABASE_PASSWORD')}@{os.getenv('DATABASE_HOST')}:3306"
-    )
-    return engine
+from utils import mysql_connection
 
 
 def insert_statement(table: Table, insert_values: list[dict[Hashable, Any]], update_cols: Tuple[str, ...]) -> Insert:

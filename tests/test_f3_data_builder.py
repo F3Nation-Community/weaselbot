@@ -8,7 +8,6 @@ from sqlalchemy.engine import Engine
 
 from f3_data_builder import (
     insert_statement,
-    mysql_connection,
     pull_aos,
     pull_attendance,
     pull_beatdowns,
@@ -16,6 +15,7 @@ from f3_data_builder import (
     region_subquery,
     weaselbot_region_query,
 )
+from utils import mysql_connection
 
 
 @pytest.fixture(scope="module")
