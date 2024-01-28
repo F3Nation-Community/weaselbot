@@ -39,6 +39,7 @@ INNER JOIN weaselbot.combined_attendance a ON u.user_id = a.user_id
 INNER JOIN weaselbot.combined_beatdowns b ON a.beatdown_id = b.beatdown_id
 INNER JOIN weaselbot.combined_aos ao ON b.ao_id = ao.ao_id
 INNER JOIN weaselbot.combined_users_dup ud ON ud.user_id = u.user_id AND ud.region_id = ao.region_id
+WHERE DATEDIFF(CURDATE(), b.bd_date) < 180
 GROUP BY 1, 2, 3) z) y
 WHERE rn = 1;
 """
