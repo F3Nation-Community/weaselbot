@@ -24,10 +24,6 @@ def nation_sql(metadata, year):
         a.c.ao_id,
         a.c.ao_name.label("ao"),
         b.c.bd_date.label("date"),
-        func.year(b.c.bd_date).label("year_num"),
-        func.month(b.c.bd_date).label("month_num"),
-        func.week(b.c.bd_date).label("week_num"),
-        func.day(b.c.bd_date).label("day_num"),
         case((or_(bd.c.user_id == b.c.q_user_id, bd.c.user_id == b.c.coq_user_id), 1), else_=0).label("q_flag"),
         b.c.backblast,
         r.c.schema_name.label("home_region"),
@@ -123,8 +119,8 @@ def main():
     df_regions = pd.read_sql(region_sql(metadata), engine)
     nation_df = pd.read_sql(nation_sql(metadata, year), engine, parse_dates="date")
 
-    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s")
-    ao_filter = nation_df.ao.str.contains(r"q.{0,1}source")
+    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s|ruck")
+    ao_filter = nation_df.ao.str.contains(r"q.{0,1}source|ruck")
 
     ############# Q Source ##############
     priest_df = the_priest(nation_df, bb_filter, ao_filter)
