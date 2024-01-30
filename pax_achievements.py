@@ -1,15 +1,17 @@
 #!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
+import logging
 from datetime import date
 
 import pandas as pd
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Selectable, Table
+from sqlalchemy.engine import Engine
 from sqlalchemy.sql import and_, case, func, or_, select
 
-from utils import mysql_connection, slack_client
+from utils import mysql_connection, send_to_slack
 
 
-def nation_sql(metadata, year):
+def nation_sql(metadata: MetaData, year: int) -> Selectable:
     u = metadata.tables["weaselbot.combined_users"]
     a = metadata.tables["weaselbot.combined_aos"]
     b = metadata.tables["weaselbot.combined_beatdowns"]
@@ -42,13 +44,13 @@ def nation_sql(metadata, year):
     return sql
 
 
-def region_sql(metadata):
+def region_sql(metadata: MetaData):
     """Pick out only the regions that want their weaselshaker awards."""
     t = metadata.tables["weaselbot.regions"]
     return select(t).where(t.c.send_achievements == 1)
 
 
-def award_view(row, engine, metadata, year):
+def award_view(row, engine: Engine, metadata: MetaData, year: int) -> Selectable:
     aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=row.paxminer_schema)
     al = Table("achievements_list", metadata, autoload_with=engine, schema=row.paxminer_schema)
 
@@ -59,55 +61,63 @@ def award_view(row, engine, metadata, year):
     )
     return sql
 
-def the_priest(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
-    grouping = ["slack_user_id", "home_region"]
-    x = df.query("@bb_filter or @ao_filter").groupby(grouping)["ao_id"].count()
-    return x[x >= 25]
+def award_list(row, engine: Engine, metadata: MetaData) -> Selectable:
+    try:
+        al = metadata.tables[f"{row.paxminer_schema}.achievements_list"]
+    except KeyError:
+        al = Table("achievements_list", metadata, autoload_with=engine, schema=row.paxminer_schema)
 
-def the_monk(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+    return select(al)
+
+def the_priest(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["year", "slack_user_id", "home_region"]
+    x = df.assign(year=df.date.dt.year).query("@bb_filter or @ao_filter").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id >= 25].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
+
+def the_monk(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["month", "slack_user_id", "home_region"]
-    x = df.assign(month=df.date.dt.month).query("@bb_filter or @ao_filter").groupby(grouping)["ao_id"].count()
-    return x[x>=4]
+    x = df.assign(month=df.date.dt.month).query("@bb_filter or @ao_filter").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id >= 4].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def leader_of_men(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def leader_of_men(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["month", "slack_user_id", "home_region"]
-    x = df.assign(month=df.date.dt.month).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].count()
-    return x[x>=4]
+    x = df.assign(month=df.date.dt.month).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id >= 4].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def the_boss(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def the_boss(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["month", "slack_user_id", "home_region"]
-    x = df.assign(month=df.date.dt.month).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].count()
-    return x[x>=6]
+    x = df.assign(month=df.date.dt.month).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id>=6].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def hammer_not_nail(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def hammer_not_nail(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["week", "slack_user_id", "home_region"]
-    x = df.assign(week=df.date.dt.isocalendar().week).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].count()
-    return x[x>=6]
+    x = df.assign(week=df.date.dt.isocalendar().week).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id>=6].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def cadre(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def cadre(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["month", "slack_user_id", "home_region"]
-    x = df.assign(month=df.date.dt.month).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].nunique()
-    return x[x >= 7]
+    x = df.assign(month=df.date.dt.month).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'nunique', 'date': 'max'})
+    return x[x.ao_id >= 7].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def el_presidente(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def el_presidente(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["year", "slack_user_id", "home_region"]
-    x = df.assign(year=df.date.dt.year).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].count()
-    return x[x >= 20]
+    x = df.assign(year=df.date.dt.year).query("(q_flag == 1) and not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id >= 20].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def posts(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def posts(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["year", "slack_user_id", "home_region"]
-    x = df.assign(year=df.date.dt.year).query("not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].count()
+    x = df.assign(year=df.date.dt.year).query("not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
     return x
 
-def six_pack(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def six_pack(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["week", "slack_user_id", "home_region"]
-    x = df.assign(week=df.date.dt.isocalendar().week).query("not (@bb_filter or @ao_filter)").groupby(grouping)["ao_id"].count()
-    return x[x >= 6]
+    x = df.assign(week=df.date.dt.isocalendar().week).query("not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao_id": 'count', 'date': 'max'})
+    return x[x.ao_id >= 6].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1)
 
-def hdtf(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Series:
+def hdtf(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
     grouping = ["year", "slack_user_id", "home_region", "ao_id"]
-    x = df.assign(year=df.date.dt.year).query("not (@bb_filter or @ao_filter)").groupby(grouping)["ao"].count()
-    return x[x >= 50]
+    x = df.assign(year=df.date.dt.year).query("not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao": 'count', 'date': 'max'})
+    return x[x.ao >= 50].reset_index().drop('ao', axis=1).rename({"date": "date_awarded"}, axis=1)
 
 def main():
 
@@ -119,31 +129,52 @@ def main():
     df_regions = pd.read_sql(region_sql(metadata), engine)
     nation_df = pd.read_sql(nation_sql(metadata, year), engine, parse_dates="date")
 
+    # for QSource, we want to capture only QSource
+    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s")
+    ao_filter = nation_df.ao.str.contains(r"q.{0,1}source")
+
+    dfs = []
+    ############# Q Source ##############
+    dfs.append(the_priest(nation_df, bb_filter, ao_filter))
+    dfs.append(the_monk(nation_df, bb_filter, ao_filter))
+    ############### END #################
+
+    # For beatdowns, we want to exclude QSource and Ruck (blackops too? What is blackops?)
     bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s|ruck")
     ao_filter = nation_df.ao.str.contains(r"q.{0,1}source|ruck")
 
-    ############# Q Source ##############
-    priest_df = the_priest(nation_df, bb_filter, ao_filter)
-    monk_df = the_monk(nation_df, bb_filter, ao_filter)
-    ############### END #################
-
     ############ ALL ELSE ###############
-    leader_of_men_df = leader_of_men(nation_df, bb_filter, ao_filter)
-    boss_df = the_boss(nation_df, bb_filter, ao_filter)
-    hammer_not_nail_df = hammer_not_nail(nation_df, bb_filter, ao_filter)
-    cadre_df = cadre(nation_df, bb_filter, ao_filter)
-    el_presidente_df = el_presidente(nation_df, bb_filter, ao_filter)
+    dfs.append(leader_of_men(nation_df, bb_filter, ao_filter))
+    dfs.append(the_boss(nation_df, bb_filter, ao_filter))
+    dfs.append(hammer_not_nail(nation_df, bb_filter, ao_filter))
+    dfs.append(cadre(nation_df, bb_filter, ao_filter))
+    dfs.append(el_presidente(nation_df, bb_filter, ao_filter))
 
-    ss = []
     s = posts(nation_df, bb_filter, ao_filter)
     for val in [25, 50, 100, 150, 200]:
-        ss.append(s[s >= val])
-    el_quatro, golden_by, centurian, karate_kid, crazy_person = ss
-    six_pack_df = six_pack(nation_df, bb_filter, ao_filter)
-    hdtf_df = hdtf(nation_df, bb_filter, ao_filter)
+        dfs.append(s[s.ao_id >= val].reset_index().drop('ao_id', axis=1).rename({"date": "date_awarded"}, axis=1))
 
+    dfs.append(six_pack(nation_df, bb_filter, ao_filter))
+    dfs.append(hdtf(nation_df, bb_filter, ao_filter))
+
+    for row in df_regions.itertuples(index=False):
+        awarded = pd.read_sql(award_view(row, engine, metadata, year), engine, parse_dates=['date_awarded', 'created', 'updated'])
+        # below is not even close to ideal but it's what I've got for now.
+        awarded = awarded.assign(month=awarded.date_awarded.dt.month,
+                                 week=awarded.date_awarded.dt.isocalendar().week,
+                                 year=awarded.date_awarded.dt.year)
+        # I've noticed some regions have adjusted their awards table.
+        # Seems silly but that means I have to pull this table for each region.
+        awards = pd.read_sql(award_list(row, engine, metadata), engine)
+        send_to_slack(row, year, awarded, awards, dfs)
+
+    engine.dispose()
 
 
 
 if __name__ == "__main__":
+
+    logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s",
+                        level=logging.INFO,
+                        datefmt="%Y-%m-%d %H:%M:%S")
     main()
