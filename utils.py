@@ -86,19 +86,25 @@ def send_to_slack(row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.
         if df.empty:
             # no one anywhere got this award. No sense wasting resources on it.
             try:
-                logging.info(f"No data in {awards.loc[idx-1, 'name']} for {row.paxminer_schema}")
-            except KeyError:
+                logging.info(f"No data in {awards.loc[awards.id == idx, 'name'].values[0]} for {row.paxminer_schema}")
+            except IndexError:
                 logging.error(f"{row.paxminer_schema} doesn't have achievement {idx} in their awards_list table.")
             continue
         new_data = _check_for_new_results(row, year, idx, df, awarded)
         if new_data.empty:
             # there is data but nothing new since the last run. Carry on.
-            logging.info(f"No new data in {awards.loc[idx-1, 'name']} for {row.paxminer_schema}")
+            try:
+                logging.info(f"No new data in {awards.loc[awards.id == idx, 'name'].values[0]} for {row.paxminer_schema}")
+            except IndexError:
+                logging.error(f"{row.paxminer_schema} has new data but doesn't track achievement_id {idx}.")
             continue
 
         # we got this far so there are achievements to award.
-        logging.info(f"Here's the new data in {awards.loc[idx-1, 'name']} for {row.paxminer_schema}")
-        print(new_data)
+        try:
+            logging.info(f"Here's the new data in {awards.loc[awards.id == idx, 'name'].values[0]} for {row.paxminer_schema}")
+            print(new_data)
+        except IndexError:
+            logging.error(f"{row.paxminer_schema} doesn't track achievement_id {idx}.")
     # CONTINUE WORK HERE. Implement the rest of the details below.
     # pull region achievements_list table (some regions have customized)
     # parse each df in dfs into something consumable
