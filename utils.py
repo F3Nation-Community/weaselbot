@@ -85,7 +85,10 @@ def send_to_slack(row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.
     for idx, df in enumerate(dfs, start=1):
         if df.empty:
             # no one anywhere got this award. No sense wasting resources on it.
-            logging.info(f"No data in {awards.loc[idx-1, 'name']} for {row.paxminer_schema}")
+            try:
+                logging.info(f"No data in {awards.loc[idx-1, 'name']} for {row.paxminer_schema}")
+            except KeyError:
+                logging.error(f"{row.paxminer_schema} doesn't have achievement {idx} in their awards_list table.")
             continue
         new_data = _check_for_new_results(row, year, idx, df, awarded)
         if new_data.empty:
