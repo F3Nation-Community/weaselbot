@@ -5,7 +5,9 @@ from datetime import date
 
 import pandas as pd
 from sqlalchemy import MetaData, Selectable, Table
+from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.sql import and_, case, func, or_, select
 
 from utils import mysql_connection, send_to_slack
@@ -119,6 +121,20 @@ def hdtf(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.Dat
     x = df.assign(year=df.date.dt.year).query("not (@bb_filter or @ao_filter)").groupby(grouping).agg({"ao": 'count', 'date': 'max'})
     return x[x.ao >= 50].reset_index().drop('ao', axis=1).rename({"date": "date_awarded"}, axis=1)
 
+def load_to_database(row, engine: Engine, metadata: MetaData, data_to_load: pd.DataFrame) -> None:
+    """after successfully sending Slack notifications, push the data to the `achievements_awarded` table.
+    The data frame data_to_load has already been filtered to include only new achievements."""
+    try:
+        aa = metadata.tables[f"{row.paxminer_schema}.achievements_awarded"]
+    except KeyError:
+        aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=row.paxminer_schema)
+
+    load_records = data_to_load.to_dict("records")
+    sql = insert(aa).values(load_records)
+    with engine.begin() as cnxn:
+        cnxn.execute(sql)
+
+
 def main():
 
     year = date.today().year
@@ -158,15 +174,15 @@ def main():
     dfs.append(hdtf(nation_df, bb_filter, ao_filter))
 
     for row in df_regions.itertuples(index=False):
-        awarded = pd.read_sql(award_view(row, engine, metadata, year), engine, parse_dates=['date_awarded', 'created', 'updated'])
-        # below is not even close to ideal but it's what I've got for now.
-        awarded = awarded.assign(month=awarded.date_awarded.dt.month,
-                                 week=awarded.date_awarded.dt.isocalendar().week,
-                                 year=awarded.date_awarded.dt.year)
-        # I've noticed some regions have adjusted their awards table.
-        # Seems silly but that means I have to pull this table for each region.
-        awards = pd.read_sql(award_list(row, engine, metadata), engine)
-        send_to_slack(row, year, awarded, awards, dfs)
+        try:
+            awarded = pd.read_sql(award_view(row, engine, metadata, year), engine, parse_dates=['date_awarded', 'created', 'updated'])
+            awards = pd.read_sql(award_list(row, engine, metadata), engine)
+        except NoSuchTableError:
+            logging.error(f"{row.paxminer_schema} isn't signed up for Weaselbot achievements.")
+            continue
+        data_to_load = send_to_slack(row, year, awarded, awards, dfs)
+        load_to_database(row, engine, metadata, data_to_load)
+        logging.info(f"Successfully loaded all records and sent all Slack messages for {row.paxminer_schema}.")
 
     engine.dispose()
 
