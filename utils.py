@@ -81,10 +81,6 @@ def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFram
                 )
             ).loc[lambda x: x._merge == 'left_only'].drop("_merge", axis=1)
 
-def message_constructor(idx: int, record: NamedTuple):
-    """Construct the Slack message. This will have options based on
-    whether or not the award is annual, monthly or weekly."""
-
 
 def ordinal_suffix(x):
     j, k = x % 10, x % 100

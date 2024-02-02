@@ -181,7 +181,8 @@ def main():
             logging.error(f"{row.paxminer_schema} isn't signed up for Weaselbot achievements.")
             continue
         data_to_load = send_to_slack(row, year, awarded, awards, dfs)
-        load_to_database(row, engine, metadata, data_to_load)
+        if not data_to_load.empty:
+            load_to_database(row, engine, metadata, data_to_load)
         logging.info(f"Successfully loaded all records and sent all Slack messages for {row.paxminer_schema}.")
 
     engine.dispose()
