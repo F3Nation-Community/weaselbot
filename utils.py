@@ -2,6 +2,7 @@ import logging
 import os
 import ssl
 import time
+from collections import Counter, defaultdict
 from typing import NamedTuple
 
 import pandas as pd
@@ -11,9 +12,7 @@ from slack_sdk.errors import SlackApiError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s",
-                        level=logging.INFO,
-                        datefmt="%Y-%m-%d %H:%M:%S")
+logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
 
 
 def mysql_connection() -> Engine:
@@ -43,43 +42,55 @@ def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFram
     match df.columns[0]:
         case "month":
             return (
-                df.rename({"slack_user_id": "pax_id"}, axis=1)
-                .query("home_region == @row.paxminer_schema")
-                .merge(
-                    awarded.assign(month=awarded.date_awarded.dt.month).query(
-                        "achievement_id == @idx and date_awarded.dt.year == @year"
-                    )[["month", "pax_id"]],
-                    on=["month", "pax_id"],
-                    how="left",
-                    indicator=True,
+                (
+                    df.rename({"slack_user_id": "pax_id"}, axis=1)
+                    .query("home_region == @row.paxminer_schema")
+                    .merge(
+                        awarded.assign(month=awarded.date_awarded.dt.month).query(
+                            "achievement_id == @idx and date_awarded.dt.year == @year"
+                        )[["month", "pax_id"]],
+                        on=["month", "pax_id"],
+                        how="left",
+                        indicator=True,
+                    )
                 )
-            ).loc[lambda x: x._merge == 'left_only'].drop("_merge", axis=1)
+                .loc[lambda x: x._merge == "left_only"]
+                .drop("_merge", axis=1)
+            )
         case "week":
             return (
-                df.rename({"slack_user_id": "pax_id"}, axis=1)
-                .query("home_region == @row.paxminer_schema")
-                .merge(
-                    awarded.assign(week=awarded.date_awarded.dt.isocalendar().week).query(
-                        "achievement_id == @idx and date_awarded.dt.year == @year"
-                    )[["week", "pax_id"]],
-                    on=["week", "pax_id"],
-                    how="left",
-                    indicator=True,
+                (
+                    df.rename({"slack_user_id": "pax_id"}, axis=1)
+                    .query("home_region == @row.paxminer_schema")
+                    .merge(
+                        awarded.assign(week=awarded.date_awarded.dt.isocalendar().week).query(
+                            "achievement_id == @idx and date_awarded.dt.year == @year"
+                        )[["week", "pax_id"]],
+                        on=["week", "pax_id"],
+                        how="left",
+                        indicator=True,
+                    )
                 )
-            ).loc[lambda x: x._merge == 'left_only'].drop("_merge", axis=1)
+                .loc[lambda x: x._merge == "left_only"]
+                .drop("_merge", axis=1)
+            )
         case _:
             return (
-                df.rename({"slack_user_id": "pax_id"}, axis=1)
-                .query("home_region == @row.paxminer_schema")
-                .merge(
-                    awarded.assign(year=awarded.date_awarded.dt.month).query(
-                        "achievement_id == @idx and date_awarded.dt.year == @year"
-                    )[["year", "pax_id"]],
-                    on=["year", "pax_id"],
-                    how="left",
-                    indicator=True,
+                (
+                    df.rename({"slack_user_id": "pax_id"}, axis=1)
+                    .query("home_region == @row.paxminer_schema")
+                    .merge(
+                        awarded.assign(year=awarded.date_awarded.dt.year).query(
+                            "achievement_id == @idx and date_awarded.dt.year == @year"
+                        )[["year", "pax_id"]],
+                        on=["year", "pax_id"],
+                        how="left",
+                        indicator=True,
+                    )
                 )
-            ).loc[lambda x: x._merge == 'left_only'].drop("_merge", axis=1)
+                .loc[lambda x: x._merge == "left_only"]
+                .drop("_merge", axis=1)
+            )
 
 
 def ordinal_suffix(x):
@@ -92,7 +103,10 @@ def ordinal_suffix(x):
         return "rd"
     return "th"
 
-def send_to_slack(row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.DataFrame, dfs: list[pd.DataFrame]) -> pd.DataFrame:
+
+def send_to_slack(
+    row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.DataFrame, dfs: list[pd.DataFrame]
+) -> pd.DataFrame:
     """Take the region data set and for new records, write them to the `achievements_awarded` table along with
     sending the notification to Slack.
 
@@ -105,8 +119,14 @@ def send_to_slack(row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.
     and the person running this script so that there's a record of the run.
     """
 
-    client = slack_client(row.slack_token) # only need one client per row (region)
+    # client = slack_client(row.slack_token) # only need one client per row (region)
     data_to_upload = pd.DataFrame()
+
+    # Instantiate a counter for each pax. This is how we'll track total award earned counts between
+    # what they already have (historcial) and what they're earning right now.
+    _d = defaultdict(Counter)
+    for r in awarded.query("date_awarded.dt.year == @year").groupby(["pax_id", "achievement_id"])['id'].count().reset_index(level=1).itertuples():
+        _d[r.Index].update({r.achievement_id: r.id})
 
     for idx, df in enumerate(dfs, start=1):
         if df.empty:
@@ -120,7 +140,9 @@ def send_to_slack(row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.
         if new_data.empty:
             # there is data but nothing new since the last run. Carry on.
             try:
-                logging.info(f"{row.paxminer_schema} has data but nothing new for {awards.loc[awards.id == idx, 'name'].values[0]}.")
+                logging.info(
+                    f"{row.paxminer_schema} has data but nothing new for {awards.loc[awards.id == idx, 'name'].values[0]}."
+                )
             except IndexError:
                 logging.error(f"{row.paxminer_schema} has new data but doesn't track achievement_id {idx}.")
             continue
@@ -132,36 +154,38 @@ def send_to_slack(row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.
 
         # Loop over each record in `new_data`, assiging as appropriate
         for record in new_data.itertuples(index=False):
-            pax = record.pax_id
+            _d[record.pax_id].update({idx: 1})
             new_award_name = awards.query("id == @idx")["name"].item()
             new_award_verb = awards.query("id == @idx")["verb"].item()
-            total_achievements = awarded.query("pax_id == @pax and date_awarded.dt.year == @year").shape[0] + 1
-            total_idx_achievements = awarded.query("achievement_id == @idx and pax_id == @pax and date_awarded.dt.year == @year").shape[0] + 1
+            total_achievements = _d[record.pax_id].total()
+            total_idx_achievements = _d[record.pax_id][idx]
             ending = ordinal_suffix(total_idx_achievements)
 
-            sMessage = [f"Congrats to our man <@{pax}>! ",
-            f"He just unlocked the achievement *{new_award_name}* for {new_award_verb}. ",
-            f"This is achievement #{total_achievements} for <@{pax}> and the {total_idx_achievements}{ending} ",
-            "time this year he's earned this award. Keep up the good work!"]
+            sMessage = [
+                f"Congrats to our man <@{record.pax_id}>! ",
+                f"He just unlocked the achievement *{new_award_name}* for {new_award_verb}. ",
+                f"This is achievement #{total_achievements} for <@{record.pax_id}> and the {total_idx_achievements}{ending} ",
+                "time this year he's earned this award. Keep up the good work!",
+            ]
             sMessage = "".join(sMessage)
-            try:
-                response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
-                logging.info(f"Successfully sent slack message for {pax} and achievement {idx}")
-            except SlackApiError as e:
-                if e.response.status_code == 429:
-                    delay = int(e.response.headers['Retry-After'])
-                    logging.info(f"Pausing Slack notifications for {delay} seconds.")
-                    time.sleep(delay)
-                    response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
-                    logging.info(f"Successfully sent slack message for {pax} and achievement {idx}")
-            client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
+            logging.info(sMessage)
+            # try:
+            #     response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
+            #     logging.info(f"Successfully sent slack message for {pax} and achievement {idx}")
+            # except SlackApiError as e:
+            #     if e.response.status_code == 429:
+            #         delay = int(e.response.headers['Retry-After'])
+            #         logging.info(f"Pausing Slack notifications for {delay} seconds.")
+            #         time.sleep(delay)
+            #         response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
+            #         logging.info(f"Successfully sent slack message for {pax} and achievement {idx}")
+            # client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
             logging.info("Successfully added reaction.")
 
         logging.info(f"Successfully sent all slack messages to {row.paxminer_schema} for achievement {idx}")
 
-
         new_data["achievement_id"] = idx
-        data_to_upload = pd.concat([data_to_upload, new_data[["achievement_id", "pax_id", "date_awarded"]]], ignore_index=True)
+        data_to_upload = pd.concat(
+            [data_to_upload, new_data[["achievement_id", "pax_id", "date_awarded"]]], ignore_index=True
+        )
     return data_to_upload
-
-
