@@ -1,6 +1,6 @@
-from sqlalchemy import Table, Column, MetaData, ForeignKey
+from sqlalchemy import Column, ForeignKey, MetaData, Table
+from sqlalchemy.dialects.mysql import DATE, DOUBLE, INTEGER, JSON, LONGTEXT, TEXT, TINYINT, VARCHAR
 from sqlalchemy.sql.schema import ScalarElementColumnDefault
-from sqlalchemy.dialects.mysql import VARCHAR, INTEGER, TINYINT, DATE, JSON, DOUBLE, TEXT, LONGTEXT
 
 Table(
     'regions',

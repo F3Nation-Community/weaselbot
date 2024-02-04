@@ -119,7 +119,7 @@ def send_to_slack(
     and the person running this script so that there's a record of the run.
     """
 
-    # client = slack_client(row.slack_token) # only need one client per row (region)
+    client = slack_client(row.slack_token) # only need one client per row (region)
     data_to_upload = pd.DataFrame()
 
     # Instantiate a counter for each pax. This is how we'll track total award earned counts between
@@ -169,17 +169,17 @@ def send_to_slack(
             ]
             sMessage = "".join(sMessage)
             logging.info(sMessage)
-            # try:
-            #     response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
-            #     logging.info(f"Successfully sent slack message for {pax} and achievement {idx}")
-            # except SlackApiError as e:
-            #     if e.response.status_code == 429:
-            #         delay = int(e.response.headers['Retry-After'])
-            #         logging.info(f"Pausing Slack notifications for {delay} seconds.")
-            #         time.sleep(delay)
-            #         response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
-            #         logging.info(f"Successfully sent slack message for {pax} and achievement {idx}")
-            # client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
+            try:
+                response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
+                logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
+            except SlackApiError as e:
+                if e.response.status_code == 429:
+                    delay = int(e.response.headers['Retry-After'])
+                    logging.info(f"Pausing Slack notifications for {delay} seconds.")
+                    time.sleep(delay)
+                    response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
+                    logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
+            client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
             logging.info("Successfully added reaction.")
 
         logging.info(f"Successfully sent all slack messages to {row.paxminer_schema} for achievement {idx}")
