@@ -500,7 +500,7 @@ def build_beatdowns(
         "json": pd.StringDtype(),
     }
 
-    df_beatdowns = pd.read_sql(select(cb), engine, parse_dates="bd_date", dtype=dtypes)
+    df_beatdowns = pd.read_sql(select(cb), engine, parse_dates={"bd_date": {"errors": "coerce"}}, dtype=dtypes)
     df_beatdowns.q_user_id = (
         df_beatdowns.q_user_id.astype(pd.Float64Dtype()).astype(pd.Int64Dtype()).astype(pd.StringDtype())
     )
