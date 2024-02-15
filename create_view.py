@@ -1,10 +1,9 @@
 """
 Lifted directly from SQLAlchemy GitHub repo:
 https://github.com/sqlalchemy/sqlalchemy/wiki/Views
-This code, contributed by Mike Bayer, is the basis 
+This code, contributed by Mike Bayer, is the basis
 for extending SQLAlchemy to include view creation.
 """
-
 
 import sqlalchemy as sa
 from sqlalchemy.ext import compiler
