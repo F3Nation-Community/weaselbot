@@ -33,7 +33,7 @@ def slack_client(token: str) -> WebClient:
     return WebClient(token=token, ssl=ssl_context)
 
 
-def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFrame, awarded: pd.DataFrame) -> bool:
+def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFrame, awarded: pd.DataFrame) -> pd.DataFrame:
     """Check for new earned achievements in the data. By looking at the current
     achievement number and comparing it against what we've already seen, determine
     if there are new achievments to issue. If there are no new achievments,
@@ -93,15 +93,12 @@ def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFram
             )
 
 
-def ordinal_suffix(x):
-    j, k = x % 10, x % 100
-    if j == 1 and k != 11:
-        return "st"
-    if j == 2 and k != 22:
-        return "nd"
-    if j == 3 and k != 13:
-        return "rd"
-    return "th"
+def ordinal_suffix(n: int) -> str:
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
+    return suffix
 
 
 def send_to_slack(
