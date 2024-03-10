@@ -22,6 +22,9 @@ NO_Q_THRESHOLD_POSTS = 4
 
 
 def col_cleaner(s: pd.Series) -> pd.Series:
+    """
+    Simple function to apply string stripping to a pandas Series object
+    """
     try:
         return s.str.strip()
     except AttributeError:
@@ -29,7 +32,18 @@ def col_cleaner(s: pd.Series) -> pd.Series:
 
 
 def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str) -> str:
-    """Build Slack SiteQ message"""
+    """
+    Build Slack SiteQ message
+
+    :param df_posts: All men that have not posted within the threshold
+    :type df_posts: pd.DataFrame
+    :param df_qs: All men that have not Q'ed within the threshold
+    :type df_qs: pd.DataFrame
+    :param siteq: The SlackID of the siteq for a given AO
+    :type siteq: str
+    :return: The multi-line string message to send across Slack to SiteQ and Weaselshaker
+    :rtype: str
+    """
     sMessage = [
         f"Howdy, <@{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",
     ]
@@ -54,6 +68,14 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
 
 
 def nation_select(metadata: MetaData) -> Selectable:
+    """
+    SQL abstraction for pulling The Nation data from Beaker's tables.
+
+    :param metadata: collection of all table data
+    :type metadata: SQLAlchemy MetaData object
+    :return: SQLAlchemy SELECT statement
+    :rtype: SQLAlchemy.sql.Select object
+    """
     bd = metadata.tables["weaselbot.combined_attendance"].alias("bd")
     u = metadata.tables["weaselbot.combined_users"].alias("u")
     b = metadata.tables["weaselbot.combined_beatdowns"].alias("b")
@@ -81,11 +103,30 @@ def nation_select(metadata: MetaData) -> Selectable:
 
 
 def region_select(metadata: MetaData) -> Selectable:
+    """
+    SQL abstraction for selecting all regions that want to see Weaselbot reports.
+
+    This data comes from the main weaselbot schema
+    :param metadata: collection of all table data
+    :type metadata: SQLAlchemy MetaData object
+    :return: SQLAlchemy SELECT statement
+    :rtype: SQLAlchemy.sql.Select object
+    """
     r = metadata.tables["weaselbot.regions"]
     return select(r).where(r.c.send_aoq_reports == 1)
 
 
 def region_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
+    """
+    Execute the provided SQL statement and return the cleaned dataframe
+
+    :param sql: SQLAlchemy abstracted SQL query
+    :type sql: SQLAlchemy.sql.Select object
+    :param engine: database connection engine
+    :type engine: SQLAlchemy.Engine
+    :return: DataFrame of all regions that want to see data and their siteQ's
+    :rtype: pd.DataFrame
+    """
     dtypes = {
         "id": pd.Int16Dtype(),
         "paxminer_schema": pd.StringDtype(),
@@ -102,6 +143,16 @@ def region_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
 
 
 def nation_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
+    """
+    Execute the provided SQL statement and return the cleaned dataframe
+
+    :param sql: SQLAlchemy abstracted SQL query
+    :type sql: SQLAlchemy.sql.Select object
+    :param engine: database connection engine
+    :type engine: SQLAlchemy.Engine
+    :return: DataFrame of the entire regions workout data for the current year
+    :rtype: pd.DataFrame
+    """
     dtypes = {
         "email": pd.StringDtype(),
         "ao_id": pd.StringDtype(),
@@ -120,6 +171,18 @@ def nation_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
 
 
 def pull_region_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Pull the users for the specific region defined in `row`.
+
+    :param row: key: value pair of data elements from a pandas dataframe row.
+    :type row: named tuple
+    :param engine: database connection engine
+    :type engine: SQLAlchemy.Engine
+    :param metadata: metadata object of tables
+    :type metadata: SQLAlchemy.MetaData
+    :return: dataframe of users
+    :rtype: pd.DataFrame
+    """
     users = Table("users", metadata, autoload_with=engine, schema=row.paxminer_schema)
     df = pd.read_sql(select(users), engine, dtype=pd.StringDtype(), parse_dates="start_date")
     df.app = df.app.astype(pd.Int64Dtype())
@@ -131,6 +194,15 @@ def pull_region_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) 
 
 
 def add_home_ao(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Insert the `home_ao` to the data. This is critical to making sure posts land in the
+    proper Slack channel.
+
+    :param df: dataframe of users
+    :type df; pd.DataFrame
+    :return: dataframe of users with home region included
+    :rtype: pd.DataFrame
+    """
     home_ao_df = (
         df.loc[df.date > HOME_AO_CAPTURE]
         .groupby(["pax_id"])["ao"]
@@ -146,6 +218,15 @@ def add_home_ao(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def pax_appearances(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a dataframe of pax appearances at beatdowns over time. This is used to determine
+    rolling-n dates for how long it's been since a man has shown up.
+
+    :param df: dataframe of men's attendance
+    :type df: pd.DataFrame
+    :return: date-transformed dataframe outlining the last time a man posted to an AO
+    :rtype: pd.DataFrame
+    """
     df1 = df.groupby(["year_num", "week_num"], as_index=False)["date"].min()
     df2 = df.groupby(["pax_id", "home_ao"], as_index=False)["ao"].count()
     return pd.merge(df2, df1, how="cross").drop("ao", axis=1)
@@ -154,6 +235,21 @@ def pax_appearances(df: pd.DataFrame) -> pd.DataFrame:
 def clean_data(
     df: pd.DataFrame, row: tuple[Any, ...], engine: Engine, metadata: MetaData
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Take a region's data and review it against the nation data to determine which men in the given
+    region need to be counted toward a Kotter report. This step is the main transformation step
+    to identify men for the report.
+
+    :param df: the Nation data from Weaselbot
+    :type df: pd.DataFrame
+    :param row: the specific region being focused on
+    :type row: named tuple
+    :type engine: SQLAlchemy.Engine
+    :param metadata: metadata object of tables
+    :type metadata: SQLAlchemy.MetaData
+    :return: three dataframes for the three different types of identification we're making
+    :rtype: tuple of pd.DataFrame objects
+    """
     df.rename({"user_id": "pax_id", "user_name": "pax_name"}, axis=1, inplace=True)
 
     df = add_home_ao(df)
@@ -233,6 +329,22 @@ def send_weaselbot_report(
     df_posts: pd.DataFrame,
     df_qs: pd.DataFrame,
 ) -> None:
+    """
+    Produce and post the Slack notification to the site Q's and default user.
+
+    :param row: specific region we're focusing on.
+    :type row: named tuple
+    :param client: Slack client
+    :type client: slack_api.WebClient
+    :param df_siteq: dataframe containing all the region site_q Slack ID's
+    :type df_siteq: pd.DataFrame
+    :param df_posts: dataframe containing all the posts made by region pax
+    :type df_posts: pd.DataFrame
+    :param df_qs: dataframe containing all the Q's performed by region pax
+    :type df_qs: pd.DataFrame
+    :return: None
+    :rtype: NoneType
+    """
     # Loop through site-qs that have PAX on the list and send the weaselbot report
     for siteq in df_siteq["site_q_user_id"].unique():
         dftemp_posts = df_posts[df_posts["site_q_user_id"] == siteq]

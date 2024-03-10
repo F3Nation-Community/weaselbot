@@ -1,3 +1,8 @@
+"""General purpose utilites for Weaselbot. Broadly speaking, if there's a effort to merge all
+these different tools together, this module would be a landing spot for all those shared
+methods.
+"""
+
 import logging
 import os
 import ssl
@@ -12,11 +17,13 @@ from slack_sdk.errors import SlackApiError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
+logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.DEBUG, datefmt="%Y-%m-%d %H:%M:%S")
 
 
 def mysql_connection() -> Engine:
-    """Connect to MySQL. This involves loading environment variables from file"""
+    """
+    Connect to MySQL. This involves loading environment variables from file
+    """
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     load_dotenv()
     engine = create_engine(
@@ -26,18 +33,43 @@ def mysql_connection() -> Engine:
 
 
 def slack_client(token: str) -> WebClient:
-    """Instantiate Slack Web client"""
+    """
+    Instantiate Slack Web client
+
+    :param token: Slack private token for the given channel
+    :param type: str
+    :return: open webclient to the slack channel
+    :rtype: slack_sdk.WebClient object
+    """
+
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
     return WebClient(token=token, ssl=ssl_context)
 
 
-def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFrame, awarded: pd.DataFrame) -> pd.DataFrame:
-    """Check for new earned achievements in the data. By looking at the current
+def _check_for_new_results(
+    row: NamedTuple, year: int, idx: int, df: pd.DataFrame, awarded: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Check for new earned achievements in the data. By looking at the current
     achievement number and comparing it against what we've already seen, determine
     if there are new achievments to issue. If there are no new achievments,
-    continue to the next one."""
+    continue to the next one.
+
+    :param row: a key: value named tuple.
+    :type row: namedtuple produced by pandas' intertuples method
+    :param year: the 4-digit current year
+    :type year: int
+    :param idx: The index of the `awards table` award we are focusing on
+    :type idx: int
+    :param df: the region data set. This includes new records, if any.
+    :type df: pd.DataFrame
+    :param awarded: Table of awards already handed out to the pax in the region
+    :type awarded: pd.DataFrame
+    :return: pandas DataFrame
+    :rtype: pd.DataFrame object
+    """
 
     match df.columns[0]:
         case "month":
@@ -94,17 +126,22 @@ def _check_for_new_results(row: NamedTuple, year: int, idx: int, df: pd.DataFram
 
 
 def ordinal_suffix(n: int) -> str:
+    """
+    Logic to add the orginal suffix to the numbers.
+    i.e. 3rd, 9th, 1st, etc...
+    """
     if 11 <= (n % 100) <= 13:
-        suffix = 'th'
+        suffix = "th"
     else:
-        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
+        suffix = ["th", "st", "nd", "rd", "th"][min(n % 10, 4)]
     return suffix
 
 
 def send_to_slack(
     row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.DataFrame, dfs: list[pd.DataFrame]
 ) -> pd.DataFrame:
-    """Take the region data set and for new records, write them to the `achievements_awarded` table along with
+    """
+    Take the region data set and for new records, write them to the `achievements_awarded` table along with
     sending the notification to Slack.
 
     Take the data and, after comparing it to the already-awarded achievements, find what hasn't been
@@ -114,15 +151,35 @@ def send_to_slack(
 
     Loop over each award and grant as necessary. Then push a Slack notification to both the region Slack channel
     and the person running this script so that there's a record of the run.
+
+    :param row: a key: value named tuple.
+    :type row: namedtuple produced by pandas' intertuples method
+    :param year: the 4-digit current year
+    :type year: int
+    :param awarded: pandas dataframe of previously awarded achievements
+    :type awarded: pd.DataFrame
+    :param awards: dataframe with all achievable awards
+    :type awards: pd.DataFrame
+    :param dfs: collection of all regional data. Each dataframe is the data for one specific award
+    :type dfs: list of pd.DataFrame objects
+    :return: The final set of data that reflects news awarded achievements and needs to be appended to the region
+    `awarded` table.
+    :rtype: pd.DataFrame
     """
 
-    client = slack_client(row.slack_token) # only need one client per row (region)
+    client = slack_client(row.slack_token)  # only need one client per row (region)
     data_to_upload = pd.DataFrame()
 
     # Instantiate a counter for each pax. This is how we'll track total award earned counts between
     # what they already have (historcial) and what they're earning right now.
     _d = defaultdict(Counter)
-    for r in awarded.query("date_awarded.dt.year == @year").groupby(["pax_id", "achievement_id"])['id'].count().reset_index(level=1).itertuples():
+    for r in (
+        awarded.query("date_awarded.dt.year == @year")
+        .groupby(["pax_id", "achievement_id"])["id"]
+        .count()
+        .reset_index(level=1)
+        .itertuples()
+    ):
         _d[r.Index].update({r.achievement_id: r.id})
 
     for idx, df in enumerate(dfs, start=1):
@@ -171,13 +228,17 @@ def send_to_slack(
                 logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
             except SlackApiError as e:
                 if e.response.status_code == 429:
-                    delay = int(e.response.headers['Retry-After'])
+                    delay = int(e.response.headers["Retry-After"])
                     logging.info(f"Pausing Slack notifications for {delay} seconds.")
                     time.sleep(delay)
                     response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
                     logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
-            client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
-            logging.info("Successfully added reaction.")
+                else:
+                    logging.error(f"Slack API gave error code: {e.response.status_code}")
+                    continue
+            finally:
+                client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
+                logging.info("Successfully added reaction.")
 
         logging.info(f"Successfully sent all slack messages to {row.paxminer_schema} for achievement {idx}")
 

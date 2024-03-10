@@ -136,7 +136,10 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
 
 def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = {
-        "slack_user_id": pd.StringDtype(), "user_name": pd.StringDtype(), "email": pd.StringDtype(), "region_id": pd.StringDtype()
+        "slack_user_id": pd.StringDtype(),
+        "user_name": pd.StringDtype(),
+        "email": pd.StringDtype(),
+        "region_id": pd.StringDtype(),
     }
     try:
         usr = Table("users", metadata, autoload_with=engine, schema=row.schema_name)
@@ -175,6 +178,7 @@ def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.Dat
 
     return df
 
+
 def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = {
         "slack_channel_id": pd.StringDtype(),
@@ -195,29 +199,32 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
         return pd.DataFrame(columns=dtypes.keys())
 
     sql = select(
-                beatdowns.c.ao_id.label("slack_channel_id"),
-                beatdowns.c.bd_date,
-                beatdowns.c.q_user_id.label("slack_q_user_id"),
-                beatdowns.c.coq_user_id.label("slack_coq_user_id"),
-                beatdowns.c.pax_count,
-                beatdowns.c.fng_count,
-                literal_column(f"'{row.region_id}'").label("region_id"),
-                beatdowns.c.timestamp,
-                beatdowns.c.ts_edited,
-                beatdowns.c.backblast,
-                beatdowns.c.json,
-            )
+        beatdowns.c.ao_id.label("slack_channel_id"),
+        beatdowns.c.bd_date,
+        beatdowns.c.q_user_id.label("slack_q_user_id"),
+        beatdowns.c.coq_user_id.label("slack_coq_user_id"),
+        beatdowns.c.pax_count,
+        beatdowns.c.fng_count,
+        literal_column(f"'{row.region_id}'").label("region_id"),
+        beatdowns.c.timestamp,
+        beatdowns.c.ts_edited,
+        beatdowns.c.backblast,
+        beatdowns.c.json,
+    )
 
     if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
-        sql = sql.where(or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited)))
+        sql = sql.where(
+            or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited))
+        )
     elif not isinstance(row.max_timestamp, type(pd.NA)):
         sql = sql.where(beatdowns.c.timestamp > str(row.max_timestamp))
 
     with engine.begin() as cnxn:
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-    df["json"] = df["json"].str.replace("'", '"') # converting the string object to proper JSON
+    df["json"] = df["json"].str.replace("'", '"')  # converting the string object to proper JSON
 
     return df
+
 
 def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     dtypes = {
@@ -235,15 +242,17 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
         return pd.DataFrame(columns=dtypes.keys())
 
     sql = select(
-                attendance.c.ao_id.label("slack_channel_id"),
-                attendance.c.date.label("bd_date"),
-                attendance.c.q_user_id.label("slack_q_user_id"),
-                attendance.c.user_id.label("slack_user_id"),
-                literal_column(f"'{row.region_id}'").label("region_id"),
-                attendance.c.json,
-            )
+        attendance.c.ao_id.label("slack_channel_id"),
+        attendance.c.date.label("bd_date"),
+        attendance.c.q_user_id.label("slack_q_user_id"),
+        attendance.c.user_id.label("slack_user_id"),
+        literal_column(f"'{row.region_id}'").label("region_id"),
+        attendance.c.json,
+    )
     if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
-        sql = sql.where(or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited)))
+        sql = sql.where(
+            or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited))
+        )
     elif not isinstance(row.max_timestamp, type(pd.NA)):
         sql = sql.where(attendance.c.timestamp > str(row.max_timestamp))
 
@@ -309,7 +318,10 @@ def build_users(
         cnxn.execute(user_insert_sql)
 
     dtypes = {
-        "user_id": pd.StringDtype(), "user_name": pd.StringDtype(), "email": pd.StringDtype(), "home_region_id": pd.StringDtype()
+        "user_id": pd.StringDtype(),
+        "user_name": pd.StringDtype(),
+        "email": pd.StringDtype(),
+        "home_region_id": pd.StringDtype(),
     }
 
     df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
@@ -614,9 +626,9 @@ def main() -> None:
     Main function call. This is the process flow for the original code. If not called from the
     command line, then follow this sequence of steps for proper implementation.
     """
-    logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s",
-                        level=logging.INFO,
-                        datefmt="%Y-%m-%d %H:%M:%S")
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+    )
     engine = mysql_connection()
     metadata = MetaData()
 
