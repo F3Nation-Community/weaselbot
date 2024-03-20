@@ -346,6 +346,7 @@ def send_weaselbot_report(
     :rtype: NoneType
     """
     # Loop through site-qs that have PAX on the list and send the weaselbot report
+    # If df_siteq is empty, this block doesn't run.
     for siteq in df_siteq["site_q_user_id"].unique():
         dftemp_posts = df_posts[df_posts["site_q_user_id"] == siteq]
         dftemp_qs = df_qs[df_qs["site_q_user_id"] == siteq]
