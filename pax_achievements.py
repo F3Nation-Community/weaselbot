@@ -1,434 +1,258 @@
 #!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
 
-import os
-import re
-import ssl
-import time
+import logging
 from datetime import date
-from functools import reduce
 
-import numpy as np
 import pandas as pd
-from dotenv import load_dotenv
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
-from slack_sdk.web.slack_response import SlackResponse
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, Selectable, Table
+from sqlalchemy.dialects.mysql import insert
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.sql import and_, case, func, or_, select
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+from utils import mysql_connection, send_to_slack
 
-# Inputs
-year_select = date.today().year
 
-# Gather creds
-dummy = load_dotenv()
-DATABASE_USER = os.environ.get("DATABASE_USER")
-DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD")
-DATABASE_HOST = os.environ.get("DATABASE_HOST")
-engine = create_engine(f"mysql+mysqlconnector://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:3306")
+def nation_sql(metadata: MetaData, year: int) -> Selectable:
+    u = metadata.tables["weaselbot.combined_users"]
+    a = metadata.tables["weaselbot.combined_aos"]
+    b = metadata.tables["weaselbot.combined_beatdowns"]
+    bd = metadata.tables["weaselbot.combined_attendance"]
+    r = metadata.tables["weaselbot.combined_regions"]
+    cu = metadata.tables["weaselbot.combined_users_dup"]
 
-# Pull nation data
-sql_select = f"""-- sql
-SELECT u.email AS email,
-    a.ao_id AS ao_id,
-    a.ao_name as ao,
-    b.bd_date AS date,
-    YEAR(b.bd_date) AS year_num,
-    MONTH(b.bd_date) AS month_num,
-    WEEK(b.bd_date) AS week_num,
-    DAY(b.bd_date) AS day_num,
-    CASE WHEN bd.user_id = b.q_user_id OR bd.user_id = b.coq_user_id THEN 1 ELSE 0 END AS q_flag,
-    b.backblast,
-    r.schema_name as home_region
-FROM weaselbot.combined_attendance bd
-INNER JOIN weaselbot.combined_users u
-ON bd.user_id = u.user_id
-INNER JOIN weaselbot.combined_beatdowns b
-ON bd.beatdown_id = b.beatdown_id
-INNER JOIN weaselbot.combined_aos a
-ON b.ao_id = a.ao_id
-INNER JOIN weaselbot.combined_regions r
-ON u.home_region_id = r.region_id
-WHERE YEAR(b.bd_date) = {year_select}
-    AND b.bd_date <= CURDATE()
-;
-"""
+    sql = select(
+        u.c.email,
+        u.c.user_name,
+        cu.c.slack_user_id,
+        a.c.ao_id,
+        a.c.ao_name.label("ao"),
+        b.c.bd_date.label("date"),
+        case((or_(bd.c.user_id == b.c.q_user_id, bd.c.user_id == b.c.coq_user_id), 1), else_=0).label("q_flag"),
+        b.c.backblast,
+        r.c.schema_name.label("home_region"),
+    )
+    sql = sql.select_from(
+        bd.join(u, bd.c.user_id == u.c.user_id)
+        .join(cu, and_(u.c.email == cu.c.email, u.c.home_region_id == cu.c.region_id))
+        .join(b, bd.c.beatdown_id == b.c.beatdown_id)
+        .join(a, b.c.ao_id == a.c.ao_id)
+        .join(r, u.c.home_region_id == r.c.region_id)
+    )
+    sql = sql.where(
+        b.c.bd_date.between(f"{year}-01-01", func.curdate()), u.c.email != "none", u.c.user_name != "PAXminer"
+    )
 
-# Pull paxminer region data
-with engine.connect() as conn:
-    df_regions = pd.read_sql_query(sql="SELECT * FROM weaselbot.regions WHERE send_achievements = 1;", con=conn)
-    nation_df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
+    return sql
 
-# Loop through regions
-for _, region_row in df_regions.iterrows():
-    db = region_row["paxminer_schema"]
-    slack_secret = region_row["slack_token"]
-    achievement_channel = region_row["achievement_channel"]
 
-    print(f"running {db}...")
+def region_sql(metadata: MetaData):
+    """Pick out only the regions that want their weaselshaker awards."""
+    t = metadata.tables["weaselbot.regions"]
+    return select(t).where(t.c.send_achievements == 1)
+
+
+def award_view(row, engine: Engine, metadata: MetaData, year: int) -> Selectable:
+    aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=row.paxminer_schema)
+    al = Table("achievements_list", metadata, autoload_with=engine, schema=row.paxminer_schema)
+
+    sql = (
+        select(aa, al.c.code)
+        .select_from(aa.join(al, aa.c.achievement_id == al.c.id))
+        .where(func.year(aa.c.date_awarded) == year)
+    )
+    return sql
+
+
+def award_list(row, engine: Engine, metadata: MetaData) -> Selectable:
     try:
-        awarded_view = f"""-- sql
-        SELECT aa.*, al.code
-        FROM {db}.achievements_awarded aa
-        INNER JOIN {db}.achievements_list al
-        ON aa.achievement_id = al.id
-        WHERE YEAR(aa.date_awarded) = {year_select}
-        ;
-        """
+        al = metadata.tables[f"{row.paxminer_schema}.achievements_list"]
+    except KeyError:
+        al = Table("achievements_list", metadata, autoload_with=engine, schema=row.paxminer_schema)
 
-        # Import data from SQL
-        with engine.connect() as conn:
-            # df = pd.read_sql_query(sql=sql_select, con=conn, parse_dates=["date"])
-            user_table = pd.read_sql_table(table_name="users", schema=db, con=conn)
-            achievement_list = pd.read_sql_table(table_name="achievements_list", schema=db, con=conn)
-            awarded_table_raw = pd.read_sql_query(sql=awarded_view, con=conn, parse_dates=["date_awarded"])
+    return select(al)
 
-            paxminer_log_channel = conn.execute(
-                f"SELECT channel_id FROM {db}.aos WHERE ao = 'paxminer_logs';"
-            ).fetchone()
-            if paxminer_log_channel is not None:
-                paxminer_log_channel = paxminer_log_channel[0]
 
-        # Merge in user table
-        df = pd.merge(nation_df, user_table, on=["email"], how="inner")
-        df = df[df["home_region"] == db]
-        df.rename(columns={"user_id": "pax_id", "user_name": "pax"}, inplace=True)
+def the_priest(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["year", "slack_user_id", "home_region"]
+    x = (
+        df.assign(year=df.date.dt.year)
+        .query("@bb_filter or @ao_filter")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 25].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # Create flags for different event types (beatdowns, blackops, qsource, etc)
-        df["backblast_title"] = df["backblast"].fillna("").str.replace("Slackblast: \n", "")
-        df["backblast_title"] = df["backblast_title"].str.split("\n", expand=True).iloc[:, 0]
 
-        df["ruck_flag"] = df["backblast_title"].str.contains(
-            r"\b(?:pre-ruck|preruck|rucking)\b", flags=re.IGNORECASE, regex=True
-        )
-        df.loc[df["ao"] == "rucking", "ruck_flag"] = True
+def the_monk(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["month", "slack_user_id", "home_region"]
+    x = (
+        df.assign(month=df.date.dt.month)
+        .query("@bb_filter or @ao_filter")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 4].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        df["qsource_flag"] = (
-            df["backblast_title"].str.contains(r"\b(?:qsource)\b", flags=re.IGNORECASE, regex=True)
-            | df["backblast_title"].str.contains(r"q[1-9]\.[1-9]", flags=re.IGNORECASE, regex=True)
-            | df["backblast_title"].str.contains(r"\b(?:q source)\b", flags=re.IGNORECASE, regex=True)
-        )
-        df.loc[df["ao"] == "qsource", "qsource_flag"] = True
 
-        df["blackops_flag"] = df["backblast_title"].str.contains(r"\b(?:blackops)\b", flags=re.IGNORECASE, regex=True)
-        df.loc[df["ao"] == "blackops", "blackops_flag"] = True
-        df.loc[df["ao"] == "csaup", "blackops_flag"] = True
-        df.loc[df["ao"] == "downrange", "blackops_flag"] = True
+def leader_of_men(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["month", "slack_user_id", "home_region"]
+    x = (
+        df.assign(month=df.date.dt.month)
+        .query("(q_flag == 1) and not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 4].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # Anything that's not a blackops / qsource / ruck is assumed to be a beatdown for counting achievements
-        df[df["ruck_flag"].isna()]
-        df["bd_flag"] = ~df.blackops_flag & ~df.qsource_flag & ~df.ruck_flag
 
-        # Find manually tagged achievements
-        df["achievement"] = (
-            df["backblast"]
-            .str.extract(r"((?<=achievement:).*(?=\n|$))", flags=re.IGNORECASE)[0]
-            .str.strip()
-            .str.lower()
-        )
+def the_boss(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["month", "slack_user_id", "home_region"]
+    x = (
+        df.assign(month=df.date.dt.month)
+        .query("(q_flag == 1) and not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 6].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # Change q_flag definition to only include qs for beatdowns
-        df.q_flag = df.q_flag & df.bd_flag
 
-        # instantiate Slack client
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        slack_client = WebClient(slack_secret, ssl=ssl_context)
+def hammer_not_nail(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["week", "slack_user_id", "home_region"]
+    x = (
+        df.assign(week=df.date.dt.isocalendar().week)
+        .query("(q_flag == 1) and not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 6].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # Periodic aggregations for automatic achievement tagging - weekly, monthly, yearly
-        # "view" tables are aggregated at the level they are calculated, "agg" tables aggregate them to the annual / pax level for joining together
 
-        #####################################
-        #           Weekly views            #
-        #####################################
-        # Beatdowns only, ao / week level
-        pax_week_ao_view = (
-            df[df.bd_flag]
-            .groupby(["week_num", "ao_id", "pax_id"])[["bd_flag", "q_flag"]]
-            .sum()
-            .rename(columns={"bd_flag": "bd", "q_flag": "q"})
-        )
-        # Week level
-        pax_week_view = pax_week_ao_view.groupby(["week_num", "pax_id"])[["bd", "q"]].agg(["sum", np.count_nonzero])
-        pax_week_view.columns = pax_week_view.columns.map("_".join).str.strip("_")
-        pax_week_view.rename(
-            columns={
-                "bd_sum": "bd_sum_week",
-                "q_sum": "q_sum_week",
-                "bd_count_nonzero": "bd_ao_count_week",
-                "q_count_nonzero": "q_ao_count_week",
-            },
-            inplace=True,
-        )
-        # Aggregate to pax level
-        pax_week_agg = (
-            pax_week_view.groupby(["pax_id"])
-            .max()
-            .rename(
-                columns={
-                    "bd_sum_week": "bd_sum_week_max",
-                    "q_sum_week": "q_sum_week_max",
-                    "bd_ao_count_week": "bd_ao_count_week_max",
-                    "q_ao_count_week": "q_ao_count_week_max",
-                }
-            )
-        )
-        # Special counts for travel bonus
-        pax_week_view2 = pax_week_view
-        pax_week_view2["bd_ao_count_week_extra"] = pax_week_view2["bd_ao_count_week"] - 1
-        pax_week_agg2 = (
-            pax_week_view.groupby(["pax_id"])[["bd_ao_count_week_extra"]]
-            .sum()
-            .rename(columns={"bd_ao_count_week_extra": "bd_ao_count_week_extra_year"})
-        )
+def cadre(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["month", "slack_user_id", "home_region"]
+    x = (
+        df.assign(month=df.date.dt.month)
+        .query("(q_flag == 1) and not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "nunique", "date": "max"})
+    )
+    return x[x.ao_id >= 7].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # QSources (only once/week counts for points)
-        pax_week_other_view = df[df.qsource_flag][["pax_id", "week_num", "qsource_flag"]].drop_duplicates()
-        pax_week_other_agg = (
-            pax_week_other_view.groupby(["pax_id"])[["qsource_flag"]]
-            .count()
-            .rename(columns={"qsource_flag": "qsource_week_count"})
-        )
-        # Count total posts per week (including backops)
-        pax_week_other_view2 = df.groupby(["week_num", "pax_id"])[["bd_flag", "blackops_flag"]].sum()
-        pax_week_other_view2["bd_blackops_week"] = (
-            pax_week_other_view2["bd_flag"] + pax_week_other_view2["blackops_flag"]
-        )
-        pax_week_other_agg2 = (
-            pax_week_other_view2.groupby(["pax_id"])[["bd_blackops_week"]]
-            .max()
-            .rename(columns={"bd_blackops_week": "bd_blackops_week_max"})
-        )
 
-        ######################################
-        #           Monthly views            #
-        ######################################
-        # Beatdowns only , month / ao level
-        pax_month_ao_view = (
-            df[df.bd_flag]
-            .groupby(["month_num", "ao_id", "pax_id"])[["bd_flag", "q_flag"]]
-            .sum()
-            .rename(columns={"bd_flag": "bd", "q_flag": "q"})
-        )
-        # Month level
-        pax_month_view = pax_month_ao_view.groupby(["month_num", "pax_id"])[["bd", "q"]].agg(["sum", np.count_nonzero])
-        pax_month_view.columns = pax_month_view.columns.map("_".join).str.strip("_")
-        pax_month_view.rename(
-            columns={
-                "bd_sum": "bd_sum_month",
-                "q_sum": "q_sum_month",
-                "bd_count_nonzero": "bd_ao_count_month",
-                "q_count_nonzero": "q_ao_count_month",
-            },
-            inplace=True,
-        )
-        # Monthly (not just beatdowns, includes QSources and Blackops)
-        pax_month_view_other = (
-            df.groupby(["month_num", "pax_id"])[["qsource_flag", "blackops_flag"]]
-            .sum()
-            .rename(columns={"qsource_flag": "qsource_sum_month", "blackops_flag": "blackops_sum_month"})
-        )
-        # Aggregate to PAX level
-        pax_month_agg = (
-            pax_month_view.groupby(["pax_id"])
-            .max()
-            .rename(
-                columns={
-                    "bd_sum_month": "bd_sum_month_max",
-                    "q_sum_month": "q_sum_month_max",
-                    "bd_ao_count_month": "bd_ao_count_month_max",
-                    "q_ao_count_month": "q_ao_count_month_max",
-                }
-            )
-        )
-        pax_month_other_agg = (
-            pax_month_view_other.groupby(["pax_id"])
-            .max()
-            .rename(
-                columns={
-                    "qsource_sum_month": "qsource_sum_month_max",
-                    "blackops_sum_month": "blackops_sum_month_max",
-                }
-            )
-        )
-        # Number of unique AOs Q count
-        pax_month_q_view = df[df.q_flag].drop_duplicates(["month_num", "pax_id", "ao_id"])
-        pax_month_q_view2 = (
-            pax_month_q_view.groupby(["month_num", "pax_id"])[["q_flag"]]
-            .count()
-            .rename(columns={"q_flag": "q_ao_count"})
-        )
-        pax_month_q_agg = pax_month_q_view2.groupby(["pax_id"]).max().rename(columns={"q_ao_count": "q_ao_month_max"})
+def el_presidente(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["year", "slack_user_id", "home_region"]
+    x = (
+        df.assign(year=df.date.dt.year)
+        .query("(q_flag == 1) and not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 20].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        #####################################
-        #           Annual views            #
-        #####################################
-        # Beatdowns only, ao / annual level
-        pax_year_ao_view = (
-            df[df.bd_flag]
-            .groupby(["ao_id", "pax_id"])[["bd_flag", "q_flag"]]
-            .sum()
-            .rename(columns={"bd_flag": "bd", "q_flag": "q"})
-        )
-        pax_year_view = pax_year_ao_view.groupby(["pax_id"])[["bd", "q"]].agg(["sum", np.count_nonzero])
-        pax_year_view.columns = pax_year_view.columns.map("_".join).str.strip("_")
-        pax_year_view.rename(
-            columns={
-                "bd_sum": "bd_sum_year",
-                "q_sum": "q_sum_year",
-                "bd_count_nonzero": "bd_ao_count_year",
-                "q_count_nonzero": "q_ao_count_year",
-            },
-            inplace=True,
-        )
-        # Other than beatdowns
-        pax_year_view_other = (
-            df.groupby(["pax_id"])[["qsource_flag", "blackops_flag"]]
-            .sum()
-            .rename(columns={"qsource_flag": "qsource_sum_year", "blackops_flag": "blackops_sum_year"})
-        )
-        pax_year_ao_view = (
-            df[df.bd_flag].groupby(["pax_id", "ao_id"])[["bd_flag"]].count().rename(columns={"bd_flag": "bd_sum_ao"})
-        )
-        pax_year_ao_agg = (
-            pax_year_ao_view.groupby(["pax_id"])[["bd_sum_ao"]].max().rename(columns={"bd_sum_ao": "bd_sum_ao_max"})
-        )
 
-        # Merge everything to PAX / annual view
-        pax_name_df = df.groupby("pax_id", as_index=False)["pax"].first()
-        merge_list = [
-            pax_name_df,
-            pax_year_view_other,
-            pax_year_view,
-            pax_year_ao_agg,
-            pax_month_other_agg,
-            pax_month_q_agg,
-            pax_month_agg,
-            pax_week_agg,
-            pax_week_other_agg,
-            pax_week_agg2,
-            pax_week_other_agg2,
-        ]
-        pax_view = reduce(lambda left, right: pd.merge(left, right, on=["pax_id"], how="outer"), merge_list).fillna(0)
+def posts(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["year", "slack_user_id", "home_region"]
+    x = (
+        df.assign(year=df.date.dt.year)
+        .query("not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x
 
-        # Calculate automatic achievements
-        pax_view["the_priest"] = pax_view["qsource_sum_year"] >= 25
-        pax_view["the_monk"] = pax_view["qsource_sum_month_max"] >= 4
-        pax_view["leader_of_men"] = pax_view["q_sum_month_max"] >= 4
-        pax_view["the_boss"] = pax_view["q_sum_month_max"] >= 6
-        pax_view["be_the_hammer_not_the_nail"] = pax_view["q_sum_week_max"] >= 6
-        pax_view["cadre"] = pax_view["q_ao_month_max"] >= 7
-        pax_view["road_warrior"] = pax_view["bd_ao_count_month_max"] >= 10
-        pax_view["el_presidente"] = pax_view["q_sum_year"] >= 20
-        pax_view["6_pack"] = pax_view["bd_blackops_week_max"] >= 6
-        pax_view["el_quatro"] = pax_view["bd_sum_year"] + pax_view["blackops_sum_year"] >= 25
-        pax_view["golden_boy"] = pax_view["bd_sum_year"] + pax_view["blackops_sum_year"] >= 50
-        pax_view["centurion"] = pax_view["bd_sum_year"] + pax_view["blackops_sum_year"] >= 100
-        pax_view["karate_kid"] = pax_view["bd_sum_year"] + pax_view["blackops_sum_year"] >= 150
-        pax_view["crazy_person"] = pax_view["bd_sum_year"] + pax_view["blackops_sum_year"] >= 200
-        pax_view["holding_down_the_fort"] = pax_view["bd_sum_ao_max"] >= 50
 
-        # Flag manual acheivements from tagged backblasts
-        man_achievement_df = df.loc[~(df.achievement.isna()), ["pax_id", "achievement"]].drop_duplicates(
-            ["pax_id", "achievement"]
-        )
-        man_achievement_df["achieved"] = True
-        man_achievement_df = man_achievement_df.pivot(index=["pax_id"], columns=["achievement"], values=["achieved"])
+def six_pack(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["week", "slack_user_id", "home_region"]
+    x = (
+        df.assign(week=df.date.dt.isocalendar().week)
+        .query("not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao_id": "count", "date": "max"})
+    )
+    return x[x.ao_id >= 6].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # Merge to PAX view
-        man_achievement_df = man_achievement_df.droplevel(0, axis=1).reset_index()
-        pax_view = pd.merge(pax_view, man_achievement_df, on=["pax_id"], how="left")
 
-        # Reshape awarded table and merge
-        awarded_table = awarded_table_raw.pivot(index="pax_id", columns="code", values="date_awarded").reset_index()
-        awarded_table.set_index("pax_id", inplace=True)
-        # awarded_table.columns = [x + '_awarded' for x in awarded_table.columns]
-        pax_view = pd.merge(pax_view, awarded_table, how="left", on="pax_id", suffixes=("", "_awarded"))
+def hdtf(df: pd.DataFrame, bb_filter: pd.Series, ao_filter: pd.Series) -> pd.DataFrame:
+    grouping = ["year", "slack_user_id", "home_region", "ao_id"]
+    x = (
+        df.assign(year=df.date.dt.year)
+        .query("not (@bb_filter or @ao_filter)")
+        .groupby(grouping)
+        .agg({"ao": "count", "date": "max"})
+    )
+    return x[x.ao >= 50].reset_index().drop("ao", axis=1).rename({"date": "date_awarded"}, axis=1)
 
-        # Loop through achievement list, looking for achievements earned but not yet awarded
-        award_count = 0
-        awards_add = pd.DataFrame(columns=["pax_id", "achievement_id", "date_awarded"])
 
-        for _, row in achievement_list.iterrows():
-            award = row["code"]
+def load_to_database(row, engine: Engine, metadata: MetaData, data_to_load: pd.DataFrame) -> None:
+    """after successfully sending Slack notifications, push the data to the `achievements_awarded` table.
+    The data frame data_to_load has already been filtered to include only new achievements."""
+    try:
+        aa = metadata.tables[f"{row.paxminer_schema}.achievements_awarded"]
+    except KeyError:
+        aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=row.paxminer_schema)
 
-            # check to see if award has been earned anywhere and / or has been awarded
-            if award + "_awarded" in pax_view.columns:
-                new_awards = pax_view[(pax_view[award] == True) & (pax_view[award + "_awarded"].isna())]  # noqa: E712
-            elif award in pax_view.columns:
-                new_awards = pax_view[pax_view[award] == True]  # noqa: E712
-            else:
-                new_awards = pd.DataFrame()
+    load_records = data_to_load.to_dict("records")
+    sql = insert(aa).values(load_records)
+    with engine.begin() as cnxn:
+        cnxn.execute(sql)
 
-            if len(new_awards) > 0:
-                for _, pax_row in new_awards.iterrows():
-                    # mark off in the awarded table as awarded for that PAX
-                    awards_add.loc[len(awards_add.index)] = [pax_row["pax_id"], row["id"], date.today()]
-                    achievements_to_date = len(
-                        awarded_table_raw[awarded_table_raw["pax_id"] == pax_row["pax_id"]]
-                    ) + len(awards_add[awards_add["pax_id"] == pax_row["pax_id"]])
 
-                    # send to slack channel
-                    sMessage = f"Congrats to our man <@{pax_row['pax_id']}>! He just unlocked the achievement *{row['name']}* for {row['verb']}. This is achievement #{achievements_to_date} for <@{pax_row['pax_id']}> this year. Keep up the good work!"
-                    print(sMessage)
-                    try:
-                        response: SlackResponse = slack_client.chat_postMessage(
-                            channel=achievement_channel, text=sMessage, link_names=True
-                        )
-                    except Exception as e:
-                        print(f"hit exception {e}")
-                        print(e.response)
-                        if e.response.get("error") == "not_in_channel":
-                            try:
-                                print("trying to join channel")
-                                slack_client.conversations_join(channel=achievement_channel)
-                                response = slack_client.chat_postMessage(
-                                    channel=achievement_channel, text=sMessage, link_names=True
-                                )
-                            except Exception as e:
-                                print("hit exception joining channel")
-                        elif e.response.get("error") == "ratelimited":
-                            try:
-                                print("rate limited, sleeping...")
-                                time.sleep(10)
-                                response = slack_client.chat_postMessage(
-                                    channel=achievement_channel, text=sMessage, link_names=True
-                                )
-                            except Exception:
-                                print("hit exception sleeping")
-                        else:
-                            print("hit unknown exception, unable to send message")
+def main():
+    year = date.today().year
+    engine = mysql_connection()
+    metadata = MetaData()
+    metadata.reflect(engine, schema="weaselbot")
 
-                    try:
-                        response2 = slack_client.reactions_add(
-                            channel=achievement_channel, name="fire", timestamp=response["ts"]
-                        )
-                    except Exception:
-                        print("could not add reaction")
+    df_regions = pd.read_sql(region_sql(metadata), engine)
+    nation_df = pd.read_sql(nation_sql(metadata, year), engine, parse_dates="date")
 
-        # Append new awards to award table
-        with engine.connect() as conn:
-            awards_add.to_sql(name="achievements_awarded", con=conn, if_exists="append", index=False, schema=db)
+    # for QSource, we want to capture only QSource
+    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s")
+    ao_filter = nation_df.ao.str.contains(r"q.{0,1}source")
 
-        # Send confirmation message to paxminer log channel
+    dfs = []
+    ############# Q Source ##############
+    dfs.append(the_priest(nation_df, bb_filter, ao_filter))
+    dfs.append(the_monk(nation_df, bb_filter, ao_filter))
+    ############### END #################
+
+    # For beatdowns, we want to exclude QSource and Ruck (blackops too? What is blackops?)
+    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s|ruck")
+    ao_filter = nation_df.ao.str.contains(r"q.{0,1}source|ruck")
+
+    ############ ALL ELSE ###############
+    dfs.append(leader_of_men(nation_df, bb_filter, ao_filter))
+    dfs.append(the_boss(nation_df, bb_filter, ao_filter))
+    dfs.append(hammer_not_nail(nation_df, bb_filter, ao_filter))
+    dfs.append(cadre(nation_df, bb_filter, ao_filter))
+    dfs.append(el_presidente(nation_df, bb_filter, ao_filter))
+
+    s = posts(nation_df, bb_filter, ao_filter)
+    for val in [25, 50, 100, 150, 200]:
+        dfs.append(s[s.ao_id >= val].reset_index().drop("ao_id", axis=1).rename({"date": "date_awarded"}, axis=1))
+
+    dfs.append(six_pack(nation_df, bb_filter, ao_filter))
+    dfs.append(hdtf(nation_df, bb_filter, ao_filter))
+
+    for row in df_regions.itertuples(index=False):
         try:
-            response = slack_client.chat_postMessage(
-                channel=paxminer_log_channel,
-                text=f"Patch program run for the day, {len(awards_add)} awards tagged",
+            awarded = pd.read_sql(
+                award_view(row, engine, metadata, year), engine, parse_dates=["date_awarded", "created", "updated"]
             )
-        except SlackApiError:
-            try:
-                slack_client.conversations_join(channel=paxminer_log_channel)
-                try:
-                    response = slack_client.chat_postMessage(
-                        channel=paxminer_log_channel,
-                        text=f"Patch program run for the day, {len(awards_add)} awards tagged",
-                    )
-                except Exception:
-                    print("hit exception sending message to log channel")
-            except Exception:
-                print("hit exception joining log channel")
-        print(f"All done, {len(awards_add)} awards tagged!")
-    except Exception as e:
-        print(f"hit exception {e}")
+            awards = pd.read_sql(award_list(row, engine, metadata), engine)
+        except NoSuchTableError:
+            logging.error(f"{row.paxminer_schema} isn't signed up for Weaselbot achievements.")
+            continue
+        data_to_load = send_to_slack(row, year, awarded, awards, dfs)
+        if not data_to_load.empty:
+            load_to_database(row, engine, metadata, data_to_load)
+        logging.info(f"Successfully loaded all records and sent all Slack messages for {row.paxminer_schema}.")
+
+    engine.dispose()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    main()
