@@ -44,8 +44,10 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
     :return: The multi-line string message to send across Slack to SiteQ and Weaselshaker
     :rtype: str
     """
+
+    siteq = f"@{siteq}" if siteq[0].upper() == "U" else "!channel"
     sMessage = [
-        f"Howdy, <@{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",
+        f"Howdy, <{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",
     ]
 
     if len(df_posts) > 0:
