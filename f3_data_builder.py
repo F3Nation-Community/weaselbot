@@ -9,7 +9,7 @@ from pandas._libs.missing import NAType
 from sqlalchemy import MetaData, Table, literal_column
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.sql import func, or_, select
+from sqlalchemy.sql import and_, func, or_, select
 from sqlalchemy.sql.expression import Insert, Selectable, Subquery
 
 from utils import mysql_connection
@@ -132,6 +132,58 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     df_regions = pd.read_sql(weaselbot_region_sql, engine, dtype=dtypes)
 
     return df_regions
+
+
+def home_region_query(engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Determine the PAX home region based on a rolling 180 days. There's no exact
+    science to this. Men travel, men move, men do all sorts of things. In an attempt
+    to quantify a home region, the current decision is to look at the last beatdowns
+    a man posted to in the most current 30 days. The most frequent is determined to
+    be the home region. There are flaws to this approach but it's sound for the time
+    being.
+
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: A dataframe containing current home region information for each PAX
+    """
+
+    ud = metadata.tables["weaselbot.combined_users_dup"]
+    u = metadata.tables["weaselbot.combined_users"]
+    a = metadata.tables["weaselbot.combined_attendance"]
+    b = metadata.tables["weaselbot.combined_beatdowns"]
+    ao = metadata.tables["weaselbot.combined_aos"]
+
+    base_sql = select(
+        ud.c.user_name, u.c.email, ao.c.region_id.label("home_region_id"), func.count().label("attendance_count")
+    )
+    base_sql = base_sql.select_from(
+        u.join(a, u.c.user_id == a.c.user_id)
+        .join(b, a.c.beatdown_id == b.c.beatdown_id)
+        .join(ao, b.c.ao_id == ao.c.ao_id)
+        .join(ud, and_(ud.c.user_id == u.c.user_id, ud.c.region_id == ao.c.region_id))
+    )
+    base_sql = base_sql.where(func.datediff(func.curdate(), b.c.bd_date) < 30)
+    base_sql = base_sql.group_by(ud.c.user_name, u.c.email, ao.c.region_id).cte("z")
+
+    subq = select(
+        base_sql,
+        func.row_number().over(partition_by=base_sql.c.email, order_by=base_sql.c.attendance_count.desc()).label("rn"),
+    ).alias()
+    sql = select(subq).where(subq.c.rn == 1)
+
+    dtypes = {
+        "user_name": pd.StringDtype(),
+        "email": pd.StringDtype(),
+        "home_region_id": pd.StringDtype(),
+        "attendance_count": pd.Int64Dtype(),
+        "rn": pd.Int64Dtype(),
+    }
+
+    return pd.read_sql(sql, engine, dtype=dtypes)
 
 
 def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
@@ -263,7 +315,11 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
 
 
 def build_users(
-    df_users_dup: pd.DataFrame, df_attendance: pd.DataFrame, engine: Engine, metadata: MetaData
+    df_users_dup: pd.DataFrame,
+    df_attendance: pd.DataFrame,
+    df_home_region: pd.DataFrame,
+    engine: Engine,
+    metadata: MetaData,
 ) -> pd.DataFrame:
     """
     Process the user information from each region. Attendance information is taken into account and
@@ -300,6 +356,14 @@ def build_users(
     )
 
     df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
+
+    # update home region using df_home_region
+    df_home_region.rename(columns={"user_name": "user_name_home"}, inplace=True)
+    df_users = df_users.merge(df_home_region[["user_name_home", "email", "home_region_id"]], on="email", how="left")
+    mask = df_users["home_region_id"].isna()
+    df_users.loc[mask, "home_region_id"] = df_users.loc[mask, "region_id"]
+    mask = ~df_users["user_name_home"].isna()
+    df_users.loc[mask, "user_name"] = df_users.loc[mask, "user_name_home"]
 
     insert_values = (
         df_users[["user_name", "email", "region_id"]].rename({"region_id": "home_region_id"}, axis=1).to_dict("records")
@@ -636,6 +700,7 @@ def main() -> None:
     Table("regions", metadata, autoload_with=engine, schema="paxminer")
 
     df_regions = region_queries(engine, metadata)
+    df_home_region = home_region_query(engine, metadata)
 
     df_users_dup_list, df_aos_list, df_beatdowns_list, df_attendance_list = [], [], [], []
     for row in df_regions.itertuples(index=False):
@@ -652,7 +717,7 @@ def main() -> None:
     df_beatdowns.ts_edited = df_beatdowns.ts_edited.replace("NA", pd.NA).astype(pd.Float64Dtype())
 
     logging.info(f"beatdowns to process: {len(df_beatdowns)}")
-    df_users_dup = build_users(df_users_dup, df_attendance, engine, metadata)
+    df_users_dup = build_users(df_users_dup, df_attendance, df_home_region, engine, metadata)
     df_aos = build_aos(df_aos, engine, metadata)
     df_beatdowns = build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata)
     build_attendance(df_attendance, df_users_dup, df_aos, df_beatdowns, engine, metadata)
