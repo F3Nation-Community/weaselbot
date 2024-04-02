@@ -20,7 +20,7 @@ from PIL import Image as PillowImage
 from slack_sdk import WebClient
 
 # Import checksum set, used to prevent duplicate uploads
-with open('cache/checksum_set.pkl', 'rb') as checksum_pickle:
+with open("cache/checksum_set.pkl", "rb") as checksum_pickle:
     checksum_set = pickle.load(checksum_pickle)
 
 # Find start and end times
@@ -33,49 +33,49 @@ end = str(round(datetime(eval_year, eval_month + 1, 1, 0, 0, 0, 0).timestamp()) 
 
 # Inputs
 just_pictures = True
-DRIVE_FOLDER_ID = ''
+DRIVE_FOLDER_ID = ""
 
 # GPS location for metadata
 gps_dict = {
-    'ao-the-last-stop': {1: b'N', 2: ((38, 1), (45, 1), (349, 100)), 3: b'W', 4: ((90, 1), (39, 1), (321, 100))},
-    'ao-eagles-nest': {1: b'N', 2: ((38, 1), (46, 1), (393, 100)), 3: b'W', 4: ((90, 1), (32, 1), (5629, 100))},
-    'ao-braveheart': {1: b'N', 2: ((38, 1), (45, 1), (1482, 100)), 3: b'W', 4: ((90, 1), (47, 1), (1011, 100))},
-    'ao-pain-station': {1: b'N', 2: ((38, 1), (48, 1), (5066, 100)), 3: b'W', 4: ((90, 1), (41, 1), (988, 100))},
-    'ao-the-bayou': {1: b'N', 2: ((38, 1), (48, 1), (4513, 100)), 3: b'W', 4: ((90, 1), (42, 1), (2114, 100))},
-    'ao-running-with-animals': {
-        1: b'N',
+    "ao-the-last-stop": {1: b"N", 2: ((38, 1), (45, 1), (349, 100)), 3: b"W", 4: ((90, 1), (39, 1), (321, 100))},
+    "ao-eagles-nest": {1: b"N", 2: ((38, 1), (46, 1), (393, 100)), 3: b"W", 4: ((90, 1), (32, 1), (5629, 100))},
+    "ao-braveheart": {1: b"N", 2: ((38, 1), (45, 1), (1482, 100)), 3: b"W", 4: ((90, 1), (47, 1), (1011, 100))},
+    "ao-pain-station": {1: b"N", 2: ((38, 1), (48, 1), (5066, 100)), 3: b"W", 4: ((90, 1), (41, 1), (988, 100))},
+    "ao-the-bayou": {1: b"N", 2: ((38, 1), (48, 1), (4513, 100)), 3: b"W", 4: ((90, 1), (42, 1), (2114, 100))},
+    "ao-running-with-animals": {
+        1: b"N",
         2: ((38, 1), (44, 1), (657, 100)),
-        3: b'W',
+        3: b"W",
         4: ((90, 1), (43, 1), (2267, 100)),
     },
-    'ao-the-darkness': {1: b'N', 2: ((38, 1), (46, 1), (43, 100)), 3: b'W', 4: ((90, 1), (34, 1), (1362, 100))},
+    "ao-the-darkness": {1: b"N", 2: ((38, 1), (46, 1), (43, 100)), 3: b"W", 4: ((90, 1), (34, 1), (1362, 100))},
 }
 
 # Import secrets
 dummy = load_dotenv()
-slack_secret = os.environ.get('slack_secret')
+slack_secret = os.environ.get("slack_secret")
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ['https://www.googleapis.com/auth/drive']
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 # Drive service
 def create_drive_service():
     creds = None
-    if os.path.exists('secrets/token_drive.json'):
-        creds = Credentials.from_authorized_user_file('secrets/token_slack_drive.json', SCOPES)
+    if os.path.exists("secrets/token_drive.json"):
+        creds = Credentials.from_authorized_user_file("secrets/token_slack_drive.json", SCOPES)
 
     try:
-        service = build('drive', 'v3', credentials=creds)
+        service = build("drive", "v3", credentials=creds)
         return service
     except HttpError as error:
-        print(f'An error occurred: {error}')
+        print(f"An error occurred: {error}")
         return None
 
 
 # Photos service
 def create_photos_service(client_secret_file, api_name, api_version, *scopes):
-    print(client_secret_file, api_name, api_version, scopes, sep='-')
+    print(client_secret_file, api_name, api_version, scopes, sep="-")
     CLIENT_SECRET_FILE = client_secret_file
     API_SERVICE_NAME = api_name
     API_VERSION = api_version
@@ -83,11 +83,11 @@ def create_photos_service(client_secret_file, api_name, api_version, *scopes):
 
     cred = None
 
-    pickle_file = f'secrets/token_{API_SERVICE_NAME}_{API_VERSION}.pickle'
+    pickle_file = f"secrets/token_{API_SERVICE_NAME}_{API_VERSION}.pickle"
     # print(pickle_file)
 
     if os.path.exists(pickle_file):
-        with open(pickle_file, 'rb') as token:
+        with open(pickle_file, "rb") as token:
             cred = pickle.load(token)
 
     if not cred or not cred.valid:
@@ -97,12 +97,12 @@ def create_photos_service(client_secret_file, api_name, api_version, *scopes):
             flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
             cred = flow.run_local_server()
 
-        with open(pickle_file, 'wb') as token:
+        with open(pickle_file, "wb") as token:
             pickle.dump(cred, token)
 
     try:
         service = build(API_SERVICE_NAME, API_VERSION, credentials=cred, static_discovery=False)
-        print(API_SERVICE_NAME, 'service created successfully')
+        print(API_SERVICE_NAME, "service created successfully")
         return service
     except Exception as e:
         print(e)
@@ -112,26 +112,26 @@ def create_photos_service(client_secret_file, api_name, api_version, *scopes):
 # Function to upload to Google Photos
 def upload_to_google_photos(photo_name, description):
     # setup
-    image_file = f'cache/{photo_name}'
-    upload_url = 'https://photoslibrary.googleapis.com/v1/uploads'
-    token = pickle.load(open('secrets/token_photoslibrary_v1.pickle', 'rb'))
+    image_file = f"cache/{photo_name}"
+    upload_url = "https://photoslibrary.googleapis.com/v1/uploads"
+    token = pickle.load(open("secrets/token_photoslibrary_v1.pickle", "rb"))
 
     # headers for bytes upload
     headers = {
-        'Authorization': 'Bearer ' + token.token,
-        'Content-type': 'application/octet-stream',
-        'X-Goog-Upload-Protocol': 'raw',
-        'X-Goog-Upload-File-Name': photo_name,
+        "Authorization": "Bearer " + token.token,
+        "Content-type": "application/octet-stream",
+        "X-Goog-Upload-Protocol": "raw",
+        "X-Goog-Upload-File-Name": photo_name,
     }
 
     # open image bytes and upload
-    img = open(image_file, 'rb').read()
+    img = open(image_file, "rb").read()
     response = requests.post(upload_url, data=img, headers=headers)
 
     # headers for mediaItem upload
     request_body = {
-        'newMediaItems': [
-            {'description': description, 'simpleMediaItem': {'uploadToken': response.content.decode('utf-8')}}
+        "newMediaItems": [
+            {"description": description, "simpleMediaItem": {"uploadToken": response.content.decode("utf-8")}}
         ]
     }
 
@@ -143,15 +143,15 @@ def upload_to_google_photos(photo_name, description):
 # service = create_drive_service()
 
 # Google Photos API config and service
-API_NAME = 'photoslibrary'
-API_VERSION = 'v1'
-CLIENT_SECRET_FILE = 'secrets/client_secret_google_photos.json'
-SCOPES = ['https://www.googleapis.com/auth/photoslibrary', 'https://www.googleapis.com/auth/photoslibrary.sharing']
+API_NAME = "photoslibrary"
+API_VERSION = "v1"
+CLIENT_SECRET_FILE = "secrets/client_secret_google_photos.json"
+SCOPES = ["https://www.googleapis.com/auth/photoslibrary", "https://www.googleapis.com/auth/photoslibrary.sharing"]
 service = create_photos_service(CLIENT_SECRET_FILE, API_NAME, API_VERSION, SCOPES)
 
 # Face detection inputs
-cascFolder = 'env/lib/python3.8/site-packages/cv2/data'
-cascPath = cascFolder + '/haarcascade_frontalface_default.xml'
+cascFolder = "env/lib/python3.8/site-packages/cv2/data"
+cascPath = cascFolder + "/haarcascade_frontalface_default.xml"
 faceCascade = cv2.CascadeClassifier(cascPath)
 
 # Instantiate Slack client
@@ -161,16 +161,16 @@ ssl_context.verify_mode = ssl.CERT_NONE
 slack_client = WebClient(slack_secret, ssl=ssl_context)
 
 # Get user dict for replacing usernames
-member_list = pd.DataFrame(slack_client.users_list()['members'])
-member_list = member_list.drop('profile', axis=1).join(
-    pd.DataFrame(member_list.profile.values.tolist()), rsuffix='_profile'
+member_list = pd.DataFrame(slack_client.users_list()["members"])
+member_list = member_list.drop("profile", axis=1).join(
+    pd.DataFrame(member_list.profile.values.tolist()), rsuffix="_profile"
 )
-member_list['pax'] = member_list['display_name']
-member_list.loc[member_list['display_name'] == '', 'pax'] = member_list['real_name']
-member_list['pax'] = '@' + member_list['pax'].replace(' ', '_', regex=True)
-member_list['pax_id'] = '<@' + member_list['id'] + '>'
-member_list.set_index('pax_id', inplace=True)
-member_dict = member_list['pax'].to_dict()
+member_list["pax"] = member_list["display_name"]
+member_list.loc[member_list["display_name"] == "", "pax"] = member_list["real_name"]
+member_list["pax"] = "@" + member_list["pax"].replace(" ", "_", regex=True)
+member_list["pax_id"] = "<@" + member_list["id"] + ">"
+member_list.set_index("pax_id", inplace=True)
+member_dict = member_list["pax"].to_dict()
 
 # Create a folder on Drive for this month
 # try:
@@ -187,15 +187,15 @@ member_dict = member_list['pax'].to_dict()
 
 # Cycle through channels, join if needed
 channels = slack_client.conversations_list()
-channels_list = channels['channels']
+channels_list = channels["channels"]
 
 for channel in channels_list:
-    if (channel['is_member'] is False) & (channel['is_archived'] is False):
-        slack_client.conversations_join(channel=channel['id'])
+    if (channel["is_member"] is False) & (channel["is_archived"] is False):
+        slack_client.conversations_join(channel=channel["id"])
 
 # for channel in [channels_list[4]]:
 for channel in channels_list:
-    if channel['is_member'] is True:
+    if channel["is_member"] is True:
         print(f'running {channel["name"]}...')
         # Create a folder on Drive for this channel
         # try:
@@ -211,47 +211,47 @@ for channel in channels_list:
         #     print(f'An error occurred while creating the Drive folder: {e}')
 
         # Gather all posts
-        posts = slack_client.conversations_history(channel=channel['id'], oldest=start, latest=end, limit=200)
-        all_messages = posts['messages']
+        posts = slack_client.conversations_history(channel=channel["id"], oldest=start, latest=end, limit=200)
+        all_messages = posts["messages"]
 
         # Paginate if necessary
-        if posts['has_more']:
+        if posts["has_more"]:
             posts = slack_client.conversations_history(
-                channel=channel['id'],
+                channel=channel["id"],
                 oldest=start,
                 latest=end,
                 limit=200,
-                cursor=posts['response_metadata']['next_cursor'],
+                cursor=posts["response_metadata"]["next_cursor"],
             )
-            all_messages += posts['messages']
+            all_messages += posts["messages"]
 
         # Expand files in message list (for messages with multiple files)
         messages = pd.DataFrame(all_messages)
         messages2 = pd.DataFrame(
-            columns=['ts', 'user', 'text', 'file_id', 'filetype', 'mimetype', 'file_url', 'file_is_photo']
+            columns=["ts", "user", "text", "file_id", "filetype", "mimetype", "file_url", "file_is_photo"]
         )
 
         row_idx = 0
         for _index, row in messages.iterrows():
-            if (row.get('files') is not np.nan) and (row.get('files') is not None):
-                for file in row['files']:
-                    file_is_photo = file.get('original_w') is not None
+            if (row.get("files") is not np.nan) and (row.get("files") is not None):
+                for file in row["files"]:
+                    file_is_photo = file.get("original_w") is not None
                     messages2.loc[row_idx] = [
-                        row.get('ts'),
-                        row.get('user'),
-                        row.get('text'),
-                        file.get('id'),
-                        file.get('filetype'),
-                        file.get('mimetype'),
-                        file.get('url_private'),
+                        row.get("ts"),
+                        row.get("user"),
+                        row.get("text"),
+                        file.get("id"),
+                        file.get("filetype"),
+                        file.get("mimetype"),
+                        file.get("url_private"),
                         file_is_photo,
                     ]
                     row_idx += 1
             else:
                 messages2.loc[row_idx] = [
-                    row.get('ts'),
-                    row.get('user'),
-                    row.get('text'),
+                    row.get("ts"),
+                    row.get("user"),
+                    row.get("text"),
                     None,
                     None,
                     None,
@@ -261,22 +261,22 @@ for channel in channels_list:
                 row_idx += 1
 
         # Select messages with desired file types
-        selected_messages = messages2.loc[messages2['file_is_photo'], :].copy()
+        selected_messages = messages2.loc[messages2["file_is_photo"], :].copy()
 
         # Format user, date, and text fields (will go into file description)
         if len(selected_messages) > 0:
-            selected_messages['text'].replace(to_replace=member_dict, regex=True, inplace=True)
-            selected_messages['ts_dt'] = pd.to_datetime(selected_messages['ts'].astype(float), unit='s')
-            selected_messages.loc[:, 'date'] = selected_messages['ts_dt'].dt.date
+            selected_messages["text"].replace(to_replace=member_dict, regex=True, inplace=True)
+            selected_messages["ts_dt"] = pd.to_datetime(selected_messages["ts"].astype(float), unit="s")
+            selected_messages.loc[:, "date"] = selected_messages["ts_dt"].dt.date
             selected_messages = pd.merge(
-                selected_messages, member_list[['id', 'pax']], how='left', left_on='user', right_on='id'
+                selected_messages, member_list[["id", "pax"]], how="left", left_on="user", right_on="id"
             )
 
             # Pull file data
             for _index, file in selected_messages.iterrows():
                 print(f"processing {file['file_id']}")
                 try:
-                    r = requests.get(file['file_url'], headers={'Authorization': f'Bearer {slack_secret}'})
+                    r = requests.get(file["file_url"], headers={"Authorization": f"Bearer {slack_secret}"})
 
                     img_bytes = bytearray(r.content)
 
@@ -287,25 +287,25 @@ for channel in channels_list:
                     if checksum not in checksum_set:
                         pillow_img = PillowImage.open(io.BytesIO(img_bytes))
 
-                        filetype = file['filetype']
+                        filetype = file["filetype"]
                         img_path = f"cache/{file['file_id']}.{file['filetype']}"
 
-                        exif_date = file['date'].strftime('%Y:%m:%d 06:30:00').encode('UTF-8')
-                        exif_dict = {'Exif': {}}
-                        exif_dict['Exif'][36867] = exif_date
-                        exif_dict['Exif'][36868] = exif_date
-                        exif_dict['Exif'][36880] = b'-06:00'
+                        exif_date = file["date"].strftime("%Y:%m:%d 06:30:00").encode("UTF-8")
+                        exif_dict = {"Exif": {}}
+                        exif_dict["Exif"][36867] = exif_date
+                        exif_dict["Exif"][36868] = exif_date
+                        exif_dict["Exif"][36880] = b"-06:00"
 
                         # Convert pngs to JPG
-                        if file['filetype'].lower() == 'png':
-                            pillow_img.convert('RGB')
-                            pillow_img.mode = 'RGB'
-                            img_path = img_path[:-3] + 'jpg'
-                            filetype = 'jpg'
+                        if file["filetype"].lower() == "png":
+                            pillow_img.convert("RGB")
+                            pillow_img.mode = "RGB"
+                            img_path = img_path[:-3] + "jpg"
+                            filetype = "jpg"
 
                         # Add GPS EXIF if from an AO
-                        if channel['name'] in gps_dict.keys():
-                            exif_dict['GPS'] = gps_dict[channel['name']]
+                        if channel["name"] in gps_dict.keys():
+                            exif_dict["GPS"] = gps_dict[channel["name"]]
 
                         # Detect faces
                         img_cv = cv2.imdecode(np.asarray(img_bytes, dtype="uint8"), 0)
@@ -315,7 +315,7 @@ for channel in channels_list:
 
                         # Only upload if faces are detected (still save down locally either way)
                         if len(faces) == 0:
-                            print('no faces detected')
+                            print("no faces detected")
                             pillow_img.save(
                                 f'cache/not_uploaded/{file["file_id"]}.{filetype}', exif=piexif.dump(exif_dict)
                             )
@@ -330,9 +330,9 @@ for channel in channels_list:
                                 ],
                             )
                     else:
-                        print('duplicate detected, skipping')
+                        print("duplicate detected, skipping")
                 except Exception as e:
-                    print(f'hit issue - Error: {e}')
+                    print(f"hit issue - Error: {e}")
                 # # Upload to Drive
                 # try:
                 #     file_metadata = {
@@ -356,5 +356,5 @@ for channel in channels_list:
                 #     print(f'An error occurred while uploading {file["file_id"]}: {e}')
 
 
-with open('cache/checksum_set.pkl', 'wb') as checksum_pickle:
+with open("cache/checksum_set.pkl", "wb") as checksum_pickle:
     pickle.dump(checksum_set, checksum_pickle)

@@ -1,249 +1,729 @@
-#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
+#!/usr/bin/env python
 
-import math
-import os
+import ast
+import logging
+from typing import Any, Hashable, Tuple
 
-import numpy as np
 import pandas as pd
-from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from pandas._libs.missing import NAType
+from sqlalchemy import MetaData, Table, literal_column
+from sqlalchemy.dialects.mysql import insert
+from sqlalchemy.engine import Engine
+from sqlalchemy.sql import and_, func, or_, select
+from sqlalchemy.sql.expression import Insert, Selectable, Subquery
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-dummy = load_dotenv()
-engine = create_engine(
-    f"mysql+mysqlconnector://{os.environ.get('DATABASE_USER')}:{os.environ.get('DATABASE_PASSWORD')}@{os.environ.get('DATABASE_HOST')}:3306"
-)
-
-paxminer_region_sql = """-- sql
-SELECT r.schema_name, r.region AS region_name, b.max_timestamp AS max_timestamp, b.max_ts_edited AS max_ts_edited, b.beatdown_count AS beatdown_count, cr.region_id AS region_id
-FROM paxminer.regions r
-LEFT JOIN weaselbot.combined_regions cr ON r.schema_name = cr.schema_name
-LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b ON cr.region_id = b.region_id;
-"""
-weaselbot_region_sql = """-- sql
-SELECT w.*, b.beatdown_count AS beatdown_count
-FROM weaselbot.combined_regions w
-LEFT JOIN (SELECT a.region_id, MAX(b.timestamp) AS max_timestamp, MAX(ts_edited) AS max_ts_edited, COUNT(*) AS beatdown_count FROM weaselbot.combined_beatdowns b INNER JOIN weaselbot.combined_aos a ON b.ao_id = a.ao_id GROUP BY a.region_id) b
-ON w.region_id = b.region_id;
-"""
-region_insert_sql = "INSERT INTO weaselbot.combined_regions (schema_name, region_name, max_timestamp, max_ts_edited) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE region_name = VALUES(region_name), max_timestamp = VALUES(max_timestamp), max_ts_edited = VALUES(max_ts_edited);"
+from utils import mysql_connection
 
 
-with engine.connect() as conn:
-    df_regions = pd.read_sql(paxminer_region_sql, conn)
-    values = df_regions[["schema_name", "region_name", "max_timestamp", "max_ts_edited"]].values.tolist()
-    inserted_data = [[None if pd.isnull(value) else value for value in sublist] for sublist in values]
-    conn.execute(
-        region_insert_sql,
-        inserted_data,
+def insert_statement(table: Table, insert_values: list[dict[Hashable, Any]], update_cols: Tuple[str, ...]) -> Insert:
+    """
+    Abstract the MySQL insert statement. Returns a SQLAlchemy INSERT statement that renders
+    the following:
+
+    ```sql
+    INSERT INTO <table> (col1, col2, ...) VALUES ((val1a, val1b, ...), (val2a, val2b, ...), ...)
+    AS NEW ON DUPLICATE KEY UPDATE colx = NEW(colx), coly = NEW(coly), ...
+    ```
+
+    In this way, the creation and execution of MySQL INSERT statements becomes far less error prone and more
+    standardized.
+
+    :param table: The target table for the INSERT statement
+    :type table: SQLAlchemy Table object
+    :param insert_values: A list of dictionaries. Each dictionary is a key / value pair preresenting
+    the table column_name / value_to_insert.
+    :type insert_values: list[dict[str, Any]]
+    :rtype: Insert[Any]
+    :return: SQLAlchemy INSERT statement
+    """
+    sql = insert(table).values(insert_values)
+    on_dup = sql.on_duplicate_key_update({v.name: v for v in sql.inserted if v.name in update_cols})
+    return on_dup
+
+
+def region_subquery(metadata: MetaData) -> Subquery:
+    """
+    Abstracting some SQL duplication between the
+    paxminer and weaselbot region queries
+    """
+    cb = metadata.tables["weaselbot.combined_beatdowns"]
+    a = metadata.tables["weaselbot.combined_aos"]
+
+    sql = select(
+        a.c.region_id,
+        func.max(cb.c.timestamp).label("max_timestamp"),
+        func.max(cb.c.ts_edited).label("max_ts_edited"),
+        func.count().label("beatdown_count"),
     )
-    df_regions = pd.read_sql(weaselbot_region_sql, conn)
+    sql = sql.select_from(cb.join(a, cb.c.ao_id == a.c.ao_id))
+    sql = sql.group_by(a.c.region_id).subquery("b")
+    return sql
 
 
-df_users_dup_list = []
-df_aos_list = []
-df_beatdowns_list = []
-df_attendance_list = []
+def paxminer_region_query(metadata: MetaData, cr: Table) -> Selectable:
+    """
+    Construct the region SQL using paxminer
+    """
+    r = metadata.tables["paxminer.regions"]
+    sub = region_subquery(metadata)
 
-for _, region_row in df_regions.iterrows():
-    db = region_row["schema_name"]
-    region_id = region_row["region_id"]
-    print(f"pulling {db}...")
-
-    user_sql = f"SELECT user_id AS slack_user_id, user_name, email, {region_id} AS region_id FROM {db}.users;"
-    aos_sql = f"SELECT channel_id as slack_channel_id, ao as ao_name, {region_id} AS region_id FROM {db}.aos;"
-
-    beatdowns_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited, backblast, json FROM {db}.beatdowns WHERE timestamp > {region_row['max_timestamp']} OR ts_edited > {region_row['max_ts_edited']};"
-    attendance_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id, json FROM {db}.bd_attendance WHERE timestamp > {region_row['max_timestamp']} OR ts_edited > {region_row['max_ts_edited']};"
-    beatdowns_no_ts_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited, backblast, json FROM {db}.beatdowns;"  # AND timestamp > {region_row['max_timestamp'] or 0};"
-    attendance_no_ts_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id, json FROM {db}.bd_attendance;"  # AND timestamp > {region_row['max_timestamp'] or 0};"
-    beatdowns_no_ed_sql = f"SELECT ao_id as slack_channel_id, bd_date, q_user_id as slack_q_user_id, coq_user_id as slack_coq_user_id, pax_count, fng_count, {region_id} AS region_id, timestamp, ts_edited, backblast, json FROM {db}.beatdowns WHERE timestamp > {region_row['max_timestamp']};"
-    attendance_no_ed_sql = f"SELECT ao_id as slack_channel_id, date as bd_date, q_user_id as slack_q_user_id, user_id as slack_user_id, {region_id} AS region_id, json FROM {db}.bd_attendance WHERE timestamp > {region_row['max_timestamp']};"
-
-    with engine.connect() as conn:
-        df_users_dup_list.append(pd.read_sql(user_sql, conn))
-        df_aos_list.append(pd.read_sql(aos_sql, conn))
-        if (not math.isnan(region_row["max_timestamp"])) and (not math.isnan(region_row["max_ts_edited"])):
-            df_beatdowns_list.append(pd.read_sql(beatdowns_sql, conn))
-            df_attendance_list.append(pd.read_sql(attendance_sql, conn))
-        elif not math.isnan(region_row["max_timestamp"]):
-            df_beatdowns_list.append(pd.read_sql(beatdowns_no_ed_sql, conn))
-            df_attendance_list.append(pd.read_sql(attendance_no_ed_sql, conn))
-        elif region_row["beatdown_count"] == 0:
-            df_beatdowns_list.append(pd.read_sql(beatdowns_no_ts_sql, conn))
-            df_attendance_list.append(pd.read_sql(attendance_no_ts_sql, conn))
-
-df_users_dup = pd.concat(df_users_dup_list)
-df_aos = pd.concat(df_aos_list)
-df_beatdowns = pd.concat(df_beatdowns_list)
-df_attendance = pd.concat(df_attendance_list)
-
-print(f"beatdowns to process: {len(df_beatdowns)}")
-
-########## USERS ##########
-print("building users...")
-
-df_users_dup["email"] = df_users_dup["email"].str.lower()
-df_users_dup = df_users_dup[df_users_dup["email"].notna()]
-
-df_user_agg = (
-    df_attendance.groupby(["slack_user_id"], as_index=False)["bd_date"].count().rename(columns={"bd_date": "count"})
-)
-df_users = (
-    df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left")
-    .fillna(0)
-    .sort_values(by="count", ascending=False)
-)
-df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
-user_insert_sql = "INSERT INTO weaselbot.combined_users (user_name, email, home_region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), home_region_id = VALUES(home_region_id);"
-user_dup_insert_sql = "INSERT INTO weaselbot.combined_users_dup (slack_user_id, user_name, email, region_id, user_id) VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE user_name = VALUES(user_name), email = VALUES(email), region_id = VALUES(region_id), user_id = VALUES(user_id);"
-
-with engine.connect() as conn:
-    conn.execute(user_insert_sql, df_users[["user_name", "email", "region_id"]].values.tolist())
-    df_users = pd.read_sql_table("combined_users", conn, schema="weaselbot")
-    df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left").fillna(0)
-    df_users_dup["user_id"] = df_users_dup["user_id"].astype(int)
-    conn.execute(
-        user_dup_insert_sql,
-        df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]].values.tolist(),
+    sql = select(
+        r.c.schema_name,
+        r.c.region.label("region_name"),
+        sub.c.max_timestamp,
+        sub.c.max_ts_edited,
+        sub.c.beatdown_count,
+        cr.c.region_id,
+    )
+    sql = sql.select_from(
+        r.outerjoin(cr, r.c.schema_name == cr.c.schema_name).outerjoin(sub, cr.c.region_id == sub.c.region_id)
     )
 
-########## AOS ##########
-print("building aos...")
-aos_insert_sql = "INSERT INTO weaselbot.combined_aos (slack_channel_id, ao_name, region_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE ao_name = VALUES(ao_name);"
-
-with engine.connect() as conn:
-    conn.execute(aos_insert_sql, df_aos[["slack_channel_id", "ao_name", "region_id"]].values.tolist())
-    df_aos = pd.read_sql_table("combined_aos", conn, schema="weaselbot")
+    return sql
 
 
-########## BEATDOWNS ##########
-def extract_user_id(slack_user_id):
-    if slack_user_id is None:
-        return None
-    if slack_user_id.startswith("U"):
-        return slack_user_id
-    else:
+def weaselbot_region_query(metadata: MetaData, cr: Table) -> Selectable:
+    """
+    Construct the region SQL using weaselbot
+    """
+    sub = region_subquery(metadata)
+
+    sql = select(cr, sub.c.beatdown_count)
+    sql = sql.select_from(cr.outerjoin(sub, cr.c.region_id == sub.c.region_id))
+
+    return sql
+
+
+def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Using PAXMiner and Weaselbot region tables, make updates to the
+    Weaselbot combined_regions table if any exist from PAXMiner.
+
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: A dataframe containing current region information
+    """
+    cr = metadata.tables["weaselbot.combined_regions"]
+
+    paxminer_region_sql = paxminer_region_query(metadata, cr)
+
+    df_regions = pd.read_sql(paxminer_region_sql, engine)
+    insert_values = df_regions.to_dict("records")
+    update_cols = ("region_name", "max_timestamp", "max_ts_edited")
+    region_insert_sql = insert_statement(cr, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(region_insert_sql)
+
+    dtypes = {
+        "region_id": pd.StringDtype(),
+        "region_name": pd.StringDtype(),
+        "schema_name": pd.StringDtype(),
+        "slack_team_id": pd.StringDtype(),
+        "max_timestamp": pd.Float64Dtype(),
+        "max_ts_edited": pd.Float64Dtype(),
+        "beatdown_count": pd.Int16Dtype(),
+    }
+
+    weaselbot_region_sql = weaselbot_region_query(metadata, cr)
+    df_regions = pd.read_sql(weaselbot_region_sql, engine, dtype=dtypes)
+
+    return df_regions
+
+
+def home_region_query(engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Determine the PAX home region based on a rolling 180 days. There's no exact
+    science to this. Men travel, men move, men do all sorts of things. In an attempt
+    to quantify a home region, the current decision is to look at the last beatdowns
+    a man posted to in the most current 30 days. The most frequent is determined to
+    be the home region. There are flaws to this approach but it's sound for the time
+    being.
+
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: A dataframe containing current home region information for each PAX
+    """
+
+    ud = metadata.tables["weaselbot.combined_users_dup"]
+    u = metadata.tables["weaselbot.combined_users"]
+    a = metadata.tables["weaselbot.combined_attendance"]
+    b = metadata.tables["weaselbot.combined_beatdowns"]
+    ao = metadata.tables["weaselbot.combined_aos"]
+
+    base_sql = select(
+        ud.c.user_name, u.c.email, ao.c.region_id.label("home_region_id"), func.count().label("attendance_count")
+    )
+    base_sql = base_sql.select_from(
+        u.join(a, u.c.user_id == a.c.user_id)
+        .join(b, a.c.beatdown_id == b.c.beatdown_id)
+        .join(ao, b.c.ao_id == ao.c.ao_id)
+        .join(ud, and_(ud.c.user_id == u.c.user_id, ud.c.region_id == ao.c.region_id))
+    )
+    base_sql = base_sql.where(func.datediff(func.curdate(), b.c.bd_date) < 30)
+    base_sql = base_sql.group_by(ud.c.user_name, u.c.email, ao.c.region_id).cte("z")
+
+    subq = select(
+        base_sql,
+        func.row_number().over(partition_by=base_sql.c.email, order_by=base_sql.c.attendance_count.desc()).label("rn"),
+    ).alias()
+    sql = select(subq).where(subq.c.rn == 1)
+
+    dtypes = {
+        "user_name": pd.StringDtype(),
+        "email": pd.StringDtype(),
+        "home_region_id": pd.StringDtype(),
+        "attendance_count": pd.Int64Dtype(),
+        "rn": pd.Int64Dtype(),
+    }
+
+    return pd.read_sql(sql, engine, dtype=dtypes)
+
+
+def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = {
+        "slack_user_id": pd.StringDtype(),
+        "user_name": pd.StringDtype(),
+        "email": pd.StringDtype(),
+        "region_id": pd.StringDtype(),
+    }
+    try:
+        usr = Table("users", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        logging.error(f"{e}")
+        return pd.DataFrame(columns=dtypes.keys())
+
+    sql = select(
+        usr.c.user_id.label("slack_user_id"),
+        usr.c.user_name,
+        usr.c.email,
+        literal_column(f"'{row.region_id}'").label("region_id"),
+    )
+
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+
+    return df
+
+
+def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = {"slack_channel_id": pd.StringDtype(), "ao_name": pd.StringDtype(), "region_id": pd.StringDtype()}
+    try:
+        ao = Table("aos", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        logging.error(e)
+        return pd.Datarame(columns=dtypes.keys())
+
+    sql = select(
+        ao.c.channel_id.label("slack_channel_id"),
+        ao.c.ao.label("ao_name"),
+        literal_column(f"'{row.region_id}'").label("region_id"),
+    )
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+
+    return df
+
+
+def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = {
+        "slack_channel_id": pd.StringDtype(),
+        "slack_q_user_id": pd.StringDtype(),
+        "slack_coq_user_id": pd.StringDtype(),
+        "pax_count": pd.Int16Dtype(),
+        "fng_count": pd.Int16Dtype(),
+        "region_id": pd.StringDtype(),
+        "timestamp": pd.Float64Dtype(),
+        "ts_edited": pd.StringDtype(),
+        "backblast": pd.StringDtype(),
+        "json": pd.StringDtype(),
+    }
+    try:
+        beatdowns = Table("beatdowns", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        logging.error(e)
+        return pd.DataFrame(columns=dtypes.keys())
+
+    sql = select(
+        beatdowns.c.ao_id.label("slack_channel_id"),
+        beatdowns.c.bd_date,
+        beatdowns.c.q_user_id.label("slack_q_user_id"),
+        beatdowns.c.coq_user_id.label("slack_coq_user_id"),
+        beatdowns.c.pax_count,
+        beatdowns.c.fng_count,
+        literal_column(f"'{row.region_id}'").label("region_id"),
+        beatdowns.c.timestamp,
+        beatdowns.c.ts_edited,
+        beatdowns.c.backblast,
+        beatdowns.c.json,
+    )
+
+    if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
+        sql = sql.where(
+            or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited))
+        )
+    elif not isinstance(row.max_timestamp, type(pd.NA)):
+        sql = sql.where(beatdowns.c.timestamp > str(row.max_timestamp))
+
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+    df["json"] = df["json"].str.replace("'", '"')  # converting the string object to proper JSON
+
+    return df
+
+
+def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    dtypes = {
+        "slack_channel_id": pd.StringDtype(),
+        "slack_q_user_id": pd.StringDtype(),
+        "slack_user_id": pd.StringDtype(),
+        "region_id": pd.StringDtype(),
+        "json": pd.StringDtype(),
+    }
+
+    try:
+        attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=row.schema_name)
+    except Exception as e:
+        logging.error(e)
+        return pd.DataFrame(columns=dtypes.keys())
+
+    sql = select(
+        attendance.c.ao_id.label("slack_channel_id"),
+        attendance.c.date.label("bd_date"),
+        attendance.c.q_user_id.label("slack_q_user_id"),
+        attendance.c.user_id.label("slack_user_id"),
+        literal_column(f"'{row.region_id}'").label("region_id"),
+        attendance.c.json,
+    )
+    if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
+        sql = sql.where(
+            or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited))
+        )
+    elif not isinstance(row.max_timestamp, type(pd.NA)):
+        sql = sql.where(attendance.c.timestamp > str(row.max_timestamp))
+
+    with engine.begin() as cnxn:
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+
+    return df
+
+
+def build_users(
+    df_users_dup: pd.DataFrame,
+    df_attendance: pd.DataFrame,
+    df_home_region: pd.DataFrame,
+    engine: Engine,
+    metadata: MetaData,
+) -> pd.DataFrame:
+    """
+    Process the user information from each region. Attendance information is taken into account and
+    inserted/updated in each target table accordingly. Returns a pandas DataFrame that updates the
+    input dataframe `df_users_dup`
+
+    :param df_users_dup: pandas DataFrame object containing each region's user info
+    :type df_users_dup: pandas.DataFrame object
+    :param df_attendance: pandas DataFrame object containing each region's attendance information
+    :type df_attendance: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: updated df_users_dup dataframe
+    """
+
+    logging.info("building users...")
+
+    cu = metadata.tables["weaselbot.combined_users"]
+    cud = metadata.tables["weaselbot.combined_users_dup"]
+
+    df_users_dup["email"] = df_users_dup["email"].str.lower()
+    df_users_dup = df_users_dup[df_users_dup["email"].notna()]
+
+    df_user_agg = (
+        df_attendance.groupby(["slack_user_id"], as_index=False)["bd_date"].count().rename({"bd_date": "count"}, axis=1)
+    )
+    df_users = (
+        df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left")
+        .fillna(0)
+        .sort_values(by="count", ascending=False)
+    )
+
+    df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
+
+    # update home region using df_home_region
+    df_home_region.rename(columns={"user_name": "user_name_home"}, inplace=True)
+    df_users = df_users.merge(df_home_region[["user_name_home", "email", "home_region_id"]], on="email", how="left")
+    mask = df_users["home_region_id"].isna()
+    df_users.loc[mask, "home_region_id"] = df_users.loc[mask, "region_id"]
+    mask = ~df_users["user_name_home"].isna()
+    df_users.loc[mask, "user_name"] = df_users.loc[mask, "user_name_home"]
+
+    insert_values = (
+        df_users[["user_name", "email", "region_id"]].rename({"region_id": "home_region_id"}, axis=1).to_dict("records")
+    )
+
+    for d in insert_values:
         try:
-            return slack_user_id.split("/team/")[1].split("|")[0]
-        except Exception:
-            return None
+            d["home_region_id"] = int(d["home_region_id"])
+        except TypeError:
+            pass
+
+    update_cols = ("user_name", "email", "home_region_id")
+    user_insert_sql = insert_statement(cu, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(user_insert_sql)
+
+    dtypes = {
+        "user_id": pd.StringDtype(),
+        "user_name": pd.StringDtype(),
+        "email": pd.StringDtype(),
+        "home_region_id": pd.StringDtype(),
+    }
+
+    df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
+    df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
+
+    insert_values = df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]].to_dict("records")
+
+    for d in insert_values:
+        try:
+            d["user_id"] = int(d["user_id"])
+        except TypeError:
+            pass  # allowing NA to flow through
+        try:
+            d["region_id"] = int(d["region_id"])
+        except TypeError:
+            pass
+
+    update_cols = ("user_name", "email", "region_id", "user_id")
+    user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(user_dup_insert_sql)
+
+    return df_users_dup
 
 
-print("building beatdowns...")
-df_beatdowns["slack_q_user_id"] = df_beatdowns["slack_q_user_id"].apply(extract_user_id)
-df_beatdowns["slack_coq_user_id"] = df_beatdowns["slack_coq_user_id"].apply(extract_user_id)
+def build_aos(df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.DataFrame:
+    """
+    Returns a pandas DataFrame that reflects an update to the input dataframe after
+    table inserts/updates.
 
-# find duplicate slack_user_ids on df_users_dup
-df_beatdowns = (
-    df_beatdowns.merge(
-        df_users_dup[["slack_user_id", "user_id", "region_id"]],
-        left_on=["slack_q_user_id", "region_id"],
-        right_on=["slack_user_id", "region_id"],
-        how="left",
+    :param df_aos: pandas DataFrame object containing each region's AO information
+    :type df_aos: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: updated df_aos dataframe
+    """
+    logging.info("building aos...")
+    ca = metadata.tables["weaselbot.combined_aos"]
+    insert_values = df_aos[["slack_channel_id", "ao_name", "region_id"]].to_dict("records")
+
+    for d in insert_values:
+        try:
+            d["region_id"] = int(d["region_id"])
+        except TypeError:
+            pass
+
+    update_cols = ("ao_name",)
+    aos_insert_sql = insert_statement(ca, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(aos_insert_sql)
+
+    dtypes = {
+        "ao_id": pd.StringDtype(),
+        "slack_channel_id": pd.StringDtype(),
+        "ao_name": pd.StringDtype(),
+        "region_id": pd.StringDtype(),
+    }
+
+    return pd.read_sql(select(ca), engine, dtype=dtypes)
+
+
+def extract_user_id(slack_user_id) -> NAType | str:
+    """
+    Process Slack user ID's. Some of these are
+    not just simple user ID's. Clean them up
+    to standardize across the process.
+
+    :param slack_user_id: User ID from Slack
+    :type slack_user_id: str
+    :rtype: str | pandas.NA
+    :return: cleaned userid string.
+    """
+
+    match isinstance(slack_user_id, type(pd.NA)):
+        case True:
+            return pd.NA
+        case _:
+            if slack_user_id.startswith("U"):
+                return slack_user_id
+            elif "team" in slack_user_id:
+                return slack_user_id.split("/team/")[1].split("|")[0]
+
+
+def build_beatdowns(
+    df_beatdowns: pd.DataFrame, df_users_dup: pd.DataFrame, df_aos: pd.DataFrame, engine: Engine, metadata: MetaData
+) -> pd.DataFrame:
+    """
+    Returns an updated beatdowns dataframe after updates/inserts to the weaselbot.combined_beatdowns table.
+
+    :param df_beatdowns: pandas DataFrame object containing each region's beatdown information
+    :type df_beatdowns: pandas.DataFrame object
+    :param df_users_dup: pandas DataFrame object containing each region's users information
+    :type df_users_dup: pandas.DataFrame object
+    :param df_aos: pandas DataFrame object containing each region's AO information
+    :type df_aos: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: pandas.DataFrame
+    :return: updated df_beatdowns dataframe
+    """
+
+    logging.info("building beatdowns...")
+    df_beatdowns["slack_q_user_id"] = df_beatdowns["slack_q_user_id"].apply(extract_user_id).astype(pd.StringDtype())
+    df_beatdowns["slack_coq_user_id"] = (
+        df_beatdowns["slack_coq_user_id"].apply(extract_user_id).astype(pd.StringDtype())
     )
-    .rename(columns={"user_id": "q_user_id"})
-    .fillna(np.nan)
-    .replace([np.nan], [None])
-)
-df_beatdowns = (
-    df_beatdowns.merge(
-        df_users_dup[["slack_user_id", "user_id", "region_id"]],
-        left_on=["slack_coq_user_id", "region_id"],
-        right_on=["slack_user_id", "region_id"],
-        how="left",
+
+    cb = metadata.tables["weaselbot.combined_beatdowns"]
+
+    # find duplicate slack_user_ids on df_users_dup
+    df_beatdowns = (
+        df_beatdowns.merge(
+            df_users_dup[["slack_user_id", "user_id", "region_id"]],
+            left_on=["slack_q_user_id", "region_id"],
+            right_on=["slack_user_id", "region_id"],
+            how="left",
+        )
+        .rename({"user_id": "q_user_id"}, axis=1)
+        .merge(
+            df_users_dup[["slack_user_id", "user_id", "region_id"]],
+            left_on=["slack_coq_user_id", "region_id"],
+            right_on=["slack_user_id", "region_id"],
+            how="left",
+        )
+        .rename({"user_id": "coq_user_id"}, axis=1)
+        .merge(
+            df_aos[["slack_channel_id", "ao_id", "region_id"]],
+            on=["slack_channel_id", "region_id"],
+            how="left",
+        )
     )
-    .rename(columns={"user_id": "coq_user_id"})
-    .fillna(np.nan)
-    .replace([np.nan], [None])
-)
-df_beatdowns = df_beatdowns.merge(
-    df_aos[["slack_channel_id", "ao_id", "region_id"]],
-    on=["slack_channel_id", "region_id"],
-    how="left",
-)
-df_beatdowns["fng_count"] = df_beatdowns["fng_count"].fillna(0).astype(int)
-df_beatdowns["timestamp"] = pd.to_numeric(df_beatdowns["timestamp"], errors="coerce")
-df_beatdowns.loc[df_beatdowns["ts_edited"] == "NA", ("ts_edited")] = None
-df_beatdowns["ts_edited"] = df_beatdowns["ts_edited"].astype(float)
-# df_beatdowns["ao_id"] = df_beatdowns["ao_id"].astype(int)
-# df_beatdowns[df_beatdowns["ao_id"].isna()]
+    df_beatdowns["fng_count"] = df_beatdowns["fng_count"].fillna(0)
 
-# convert all nans to None
-values = df_beatdowns[~df_beatdowns["ao_id"].isna()][
-    [
-        "ao_id",
-        "bd_date",
-        "q_user_id",
-        "coq_user_id",
-        "pax_count",
-        "fng_count",
-        "timestamp",
-        "ts_edited",
-        "backblast",
-        "json",
-    ]
-].values.tolist()
-inserted_data = [[None if pd.isnull(value) else value for value in sublist] for sublist in values]
+    insert_values = df_beatdowns[df_beatdowns["ao_id"].notna()][
+        [
+            "ao_id",
+            "bd_date",
+            "q_user_id",
+            "coq_user_id",
+            "pax_count",
+            "fng_count",
+            "timestamp",
+            "ts_edited",
+            "backblast",
+            "json",
+        ]
+    ].to_dict("records")
 
-# break up into chunks of 1000
-inserted_data = [inserted_data[i : i + 1000] for i in range(0, len(inserted_data), 1000)]
+    # below columns are INT in their target table. coerce them so they'll load properly
+    # leaving them as strings in the dataframes for later ease in merges/joins
+    # NOTE: YHC is unable to test the JSON datatype. Presumbaly, MySQL will want those
+    # sent over as proper dictionaries and not string representations of dictionaries.
+    # This is the role of `ast.literal_eval`. If that's not the case, then just remove
+    # the `if` statement logic to keep them as strings.
+    for d in insert_values:
+        for col in ("ao_id", "q_user_id", "coq_user_id"):
+            try:
+                d[col] = int(d[col])
+            except TypeError:
+                pass
+        if d["json"] is not None:
+            d["json"] = ast.literal_eval(d["json"])
 
-beatdowns_insert_sql = "INSERT INTO weaselbot.combined_beatdowns (ao_id, bd_date, q_user_id, coq_user_id, pax_count, fng_count, timestamp, ts_edited, backblast, json) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE coq_user_id = VALUES(coq_user_id), pax_count = VALUES(pax_count), fng_count = VALUES(fng_count), timestamp = VALUES(timestamp), ts_edited = VALUES(ts_edited), backblast = VALUES(backblast), json = VALUES(json);"
+    update_cols = ("coq_user_id", "pax_count", "fng_count", "timestamp", "ts_edited", "backblast", "json")
 
-with engine.connect() as conn:
-    for inserted_data_chunk in inserted_data:
-        conn.execute(
-            beatdowns_insert_sql,
-            inserted_data_chunk,
+    beatdowns_insert_sql = insert_statement(cb, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(beatdowns_insert_sql)
+
+    dtypes = {
+        "beatdown_id": pd.StringDtype(),
+        "ao_id": pd.StringDtype(),
+        "q_user_id": pd.StringDtype(),
+        "coq_user_id": pd.StringDtype(),
+        "pax_count": pd.Int16Dtype(),
+        "fng_count": pd.Int16Dtype(),
+        "timestamp": pd.Float64Dtype(),
+        "ts_edited": pd.Float64Dtype(),
+        "backblast": pd.StringDtype(),
+        "json": pd.StringDtype(),
+    }
+
+    df_beatdowns = pd.read_sql(select(cb), engine, parse_dates={"bd_date": {"errors": "coerce"}}, dtype=dtypes)
+    df_beatdowns.q_user_id = (
+        df_beatdowns.q_user_id.astype(pd.Float64Dtype()).astype(pd.Int64Dtype()).astype(pd.StringDtype())
+    )
+    return df_beatdowns
+
+
+def build_attendance(
+    df_attendance: pd.DataFrame,
+    df_users_dup: pd.DataFrame,
+    df_aos: pd.DataFrame,
+    df_beatdowns: pd.DataFrame,
+    engine: Engine,
+    metadata: MetaData,
+) -> None:
+    """
+    Returns None. This process usees all the proir updates to users, AOs and beatdowns to update attendance records in the source
+    tables.
+
+    :param df_attendance: pandas DataFrame object containing each region's attendance information
+    :type df_attendance: pandas.DataFrame object
+    :param df_beatdowns: pandas DataFrame object containing each region's beatdown information
+    :type df_beatdowns: pandas.DataFrame object
+    :param df_users_dup: pandas DataFrame object containing each region's users information
+    :type df_users_dup: pandas.DataFrame object
+    :param df_aos: pandas DataFrame object containing each region's AO information
+    :type df_aos: pandas.DataFrame object
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: None
+    :return: None
+    """
+
+    logging.info("building attendance...")
+    catt = metadata.tables["weaselbot.combined_attendance"]
+    df_attendance["slack_user_id"] = df_attendance["slack_user_id"].apply(extract_user_id).astype(pd.StringDtype())
+    df_attendance["slack_q_user_id"] = df_attendance["slack_q_user_id"].apply(extract_user_id).astype(pd.StringDtype())
+    df_attendance = (
+        (
+            df_attendance.merge(
+                df_users_dup[["slack_user_id", "user_id", "region_id"]],
+                left_on=["slack_q_user_id", "region_id"],
+                right_on=["slack_user_id", "region_id"],
+                how="left",
+            )
+            .rename({"user_id": "q_user_id", "slack_user_id_x": "slack_user_id"}, axis=1)
+            .drop("slack_user_id_y", axis=1)
         )
-    df_beatdowns = pd.read_sql_table("combined_beatdowns", conn, schema="weaselbot")
-
-########## ATTENDANCE ##########
-print("building attendance...")
-df_attendance["slack_user_id"] = df_attendance["slack_user_id"].apply(extract_user_id)
-df_attendance["slack_q_user_id"] = df_attendance["slack_q_user_id"].apply(extract_user_id)
-df_attendance = df_attendance.merge(
-    df_users_dup[["slack_user_id", "user_id", "region_id"]],
-    left_on=["slack_q_user_id", "region_id"],
-    right_on=["slack_user_id", "region_id"],
-    how="left",
-).rename(columns={"user_id": "q_user_id", "slack_user_id_x": "slack_user_id"})
-df_attendance.drop(columns=["slack_user_id_y"], inplace=True)
-df_attendance = df_attendance.merge(
-    df_users_dup[["slack_user_id", "user_id", "region_id"]],
-    on=["slack_user_id", "region_id"],
-    how="left",
-)
-df_attendance = df_attendance.merge(
-    df_aos[["slack_channel_id", "ao_id", "region_id"]],
-    on=["slack_channel_id", "region_id"],
-    how="left",
-)
-df_beatdowns["bd_date"] = df_beatdowns["bd_date"].dt.date.astype(str)
-# df_attendance["q_user_id"] = df_attendance["q_user_id"].astype(int)
-df_attendance = df_attendance.merge(
-    df_beatdowns[["beatdown_id", "bd_date", "q_user_id", "ao_id"]],
-    on=["bd_date", "q_user_id", "ao_id"],
-    how="left",
-)
-df_attendance = df_attendance.fillna(np.nan).replace([np.nan], [None])
-df_attendance.drop_duplicates(subset=["beatdown_id", "user_id"], inplace=True)
-df_attendance = df_attendance[df_attendance["beatdown_id"].notnull()]
-df_attendance = df_attendance[df_attendance["user_id"].notnull()]
-attendance_insert_sql = "INSERT INTO weaselbot.combined_attendance (beatdown_id, user_id, json) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE beatdown_id = VALUES(beatdown_id), json = VALUES(json);"
-
-with engine.connect() as conn:
-    conn.execute(attendance_insert_sql, df_attendance[["beatdown_id", "user_id", "json"]].values.tolist())
-
-########## REGIONS ##########
-with engine.connect() as conn:
-    df_regions = pd.read_sql(paxminer_region_sql, conn)
-    values = df_regions[["schema_name", "region_name", "max_timestamp", "max_ts_edited"]].values.tolist()
-    inserted_data = [[None if pd.isnull(value) else value for value in sublist] for sublist in values]
-    inserted_data = [inserted_data[i : i + 10000] for i in range(0, len(inserted_data), 10000)]
-    for inserted_data_chunk in inserted_data:
-        conn.execute(
-            region_insert_sql,
-            inserted_data_chunk,
+        .merge(
+            df_users_dup[["slack_user_id", "user_id", "region_id"]],
+            on=["slack_user_id", "region_id"],
+            how="left",
         )
+        .merge(
+            df_aos[["slack_channel_id", "ao_id", "region_id"]],
+            on=["slack_channel_id", "region_id"],
+            how="left",
+        )
+        .merge(
+            df_beatdowns[["beatdown_id", "bd_date", "q_user_id", "ao_id"]],
+            on=["bd_date", "q_user_id", "ao_id"],
+            how="left",
+        )
+    )
+
+    df_attendance.drop_duplicates(subset=["beatdown_id", "user_id"], inplace=True)
+    df_attendance = df_attendance[df_attendance["beatdown_id"].notnull()]
+    df_attendance = df_attendance[df_attendance["user_id"].notnull()]
+
+    insert_values = df_attendance[["beatdown_id", "user_id", "json"]].to_dict("records")
+
+    for d in insert_values:
+        for col in ("beatdown_id", "user_id"):
+            try:
+                d[col] = int(d[col])
+            except TypeError:
+                pass
+
+    update_cols = ("beatdown_id", "json")
+    attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(attendance_insert_sql)
+
+
+def build_regions(engine: Engine, metadata: MetaData) -> None:
+    """Run the regions querie again after all updates are made in order to capture any changes.
+
+    :param engine: SQLAlchemy connection engine to MySQL
+    :type engine: sqlalchemy.engine.Engine object
+    :param metadata: collection of reflected table metadata
+    :type metadata: SQLAlchemy MetaData
+    :rtype: None
+    :return: None
+    """
+
+    cr = metadata.tables["weaselbot.combined_regions"]
+    paxminer_region_sql = paxminer_region_query(metadata, cr)
+    df_regions = pd.read_sql(paxminer_region_sql, engine)
+    insert_values = df_regions[["schema_name", "region_name", "max_timestamp", "max_ts_edited"]].to_dict("records")
+    update_cols = ("region_name", "max_timestamp", "max_ts_edited")
+    region_insert_sql = insert_statement(cr, insert_values, update_cols)
+
+    with engine.begin() as cnxn:
+        cnxn.execute(region_insert_sql)
+
+
+def main() -> None:
+    """
+    Main function call. This is the process flow for the original code. If not called from the
+    command line, then follow this sequence of steps for proper implementation.
+    """
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    engine = mysql_connection()
+    metadata = MetaData()
+
+    metadata.reflect(engine, schema="weaselbot")
+    Table("regions", metadata, autoload_with=engine, schema="paxminer")
+
+    df_regions = region_queries(engine, metadata)
+    df_home_region = home_region_query(engine, metadata)
+
+    df_users_dup_list, df_aos_list, df_beatdowns_list, df_attendance_list = [], [], [], []
+    for row in df_regions.itertuples(index=False):
+        df_users_dup_list.append(pull_users(row, engine, metadata))
+        df_aos_list.append(pull_aos(row, engine, metadata))
+        df_beatdowns_list.append(pull_beatdowns(row, engine, metadata))
+        df_attendance_list.append(pull_attendance(row, engine, metadata))
+
+    df_users_dup = pd.concat([x for x in df_users_dup_list if not x.empty])
+    df_aos = pd.concat([x for x in df_aos_list if not x.empty])
+    df_beatdowns = pd.concat([x for x in df_beatdowns_list if not x.empty])
+    df_attendance = pd.concat([x for x in df_attendance_list if not x.empty])
+
+    df_beatdowns.ts_edited = df_beatdowns.ts_edited.replace("NA", pd.NA).astype(pd.Float64Dtype())
+
+    logging.info(f"beatdowns to process: {len(df_beatdowns)}")
+    df_users_dup = build_users(df_users_dup, df_attendance, df_home_region, engine, metadata)
+    df_aos = build_aos(df_aos, engine, metadata)
+    df_beatdowns = build_beatdowns(df_beatdowns, df_users_dup, df_aos, engine, metadata)
+    build_attendance(df_attendance, df_users_dup, df_aos, df_beatdowns, engine, metadata)
+
+    engine.dispose()
+
+
+if __name__ == "__main__":
+    main()
