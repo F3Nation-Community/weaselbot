@@ -393,14 +393,36 @@ def build_users(
     df_users.loc[mask, "user_name"] = df_users.loc[mask, "user_name_home"]
     df_users["home_region_id"] = pd.to_numeric(df_users["home_region_id"], errors="coerce", downcast="integer")
 
-    insert_values = df_users[["user_name", "email", "home_region_id"]].to_dict("records")
-    update_cols = ("user_name", "email", "home_region_id")
-    user_insert_sql = insert_statement(cu, insert_values, update_cols)
-
+    #### This new section is to try to prevent uploading thousands of records to the table, taking up
+    #### a large amount of time. The idea: pull the existing table as a pandas dataframe. Then, merge them,
+    #### keeping only what's different between the two tables.
     with engine.begin() as cnxn:
-        logging.info(f"Inserting {len(insert_values):,} records into {cu.schema}.{cu.name}")
-        cnxn.execute(user_insert_sql)
-        logging.info("Done")
+        combined_users = pd.read_sql(select(cu), cnxn)
+
+    combined_users = combined_users.convert_dtypes()
+
+    cols = ["user_name", "email", "home_region_id"]
+    df_users = (
+        df_users[cols]
+        .merge(combined_users[cols], how="outer", on=cols[:2])
+        .loc[lambda x: x.home_region_id_x != x.home_region_id_y]
+        .drop("home_region_id_y", axis=1)
+        .rename({"home_region_id_x": "home_region_id"}, axis=1)
+    )
+    #### End new logic to reduce load size
+
+    insert_values = df_users[["user_name", "email", "home_region_id"]].to_dict("records")
+
+    if len(insert_values) > 0:
+        update_cols = ("user_name", "email", "home_region_id")
+        user_insert_sql = insert_statement(cu, insert_values, update_cols)
+
+        with engine.begin() as cnxn:
+            logging.info(f"Inserting {len(insert_values):,} records into {cu.schema}.{cu.name}")
+            cnxn.execute(user_insert_sql)
+            logging.info("Done")
+    else:
+        logging.info(f"No values needed to be added or updated to {cu.schema}.{cu.name}")
 
     dtypes = {
         "user_id": pd.StringDtype(),
@@ -409,23 +431,55 @@ def build_users(
         "home_region_id": pd.StringDtype(),
     }
 
-    df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
+    with engine.begin() as cnxn:
+        df_users = pd.read_sql(select(cu), cnxn, dtype=dtypes)
+
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
     df_users_dup["user_id"] = pd.to_numeric(df_users_dup["user_id"], errors="coerce", downcast="integer")
     df_users_dup["region_id"] = pd.to_numeric(df_users_dup["region_id"], errors="coerce", downcast="integer")
+
+    #### This new section is to try to prevent uploading thousands of records to the table, taking up
+    #### a large amount of time. The idea: pull the existing table as a pandas dataframe. Then, merge them,
+    #### keeping only what's different between the two tables.
+    with engine.begin() as cnxn:
+        combined_users_dup = pd.read_sql(select(cud), cnxn)
+
+    combined_users_dup = combined_users_dup.convert_dtypes()
+
+    cols = ["slack_user_id", "user_name", "email", "region_id", "user_id"]
+    df_users_dup = (
+        df_users_dup[cols]
+        .merge(combined_users_dup[cols], how="outer", on="slack_user_id")
+        .loc[
+            lambda x: (x.user_name_x != x.user_name_y)
+            | (x.email_x != x.email_y)
+            | (x.region_id_x != x.region_id_y)
+            | (x.user_id_x != x.user_id_y)
+        ]
+        .drop(["user_name_y", "email_y", "region_id_y", "user_id_y"], axis=1)
+        .rename(
+            {"user_name_x": "user_name", "email_x": "email", "region_id_x": "region_id", "user_id_x": "user_id"}, axis=1
+        )
+    )
+    #### End new logic to reduce load size
 
     insert_values = (
         df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]]
         .drop_duplicates()
         .to_dict("records")
     )
-    update_cols = ("user_name", "email", "region_id", "user_id")
-    user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        logging.info(f"Inserting {len(insert_values):,} into {cud.schema}.{cud.name}")
-        cnxn.execute(user_dup_insert_sql)
-        logging.info("Done")
+    if len(insert_values) > 0:
+        update_cols = ("user_name", "email", "region_id", "user_id")
+        user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
+
+        with engine.begin() as cnxn:
+            logging.info(f"Inserting {len(insert_values):,} into {cud.schema}.{cud.name}")
+            cnxn.execute(user_dup_insert_sql)
+            logging.info("Done")
+
+    else:
+        logging.info(f"No values needed to be added to {cud.schema}.{cud.name}")
 
     return df_users_dup
 
@@ -683,13 +737,16 @@ def build_attendance(
 
     insert_values = df_attendance[["beatdown_id", "user_id", "json"]].to_dict("records")
 
-    update_cols = ("beatdown_id", "json")
-    attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
+    if len(insert_values) > 0:
+        update_cols = ("beatdown_id", "json")
+        attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
 
-    with engine.begin() as cnxn:
-        logging.info(f"Inserting {len(insert_values):,} values into {catt.schema}.{catt.name}")
-        cnxn.execute(attendance_insert_sql)
-        logging.info("Done")
+        with engine.begin() as cnxn:
+            logging.info(f"Inserting {len(insert_values):,} values into {catt.schema}.{catt.name}")
+            cnxn.execute(attendance_insert_sql)
+            logging.info("Done")
+    else:
+        logging.info("No attendance records to update or insert")
 
 
 def build_regions(engine: Engine, metadata: MetaData) -> None:
