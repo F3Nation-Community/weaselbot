@@ -6,8 +6,8 @@ from typing import Any, Hashable, Tuple
 
 import pandas as pd
 from pandas._libs.missing import NAType
-from sqlalchemy import MetaData, Table, literal_column
-from sqlalchemy.dialects.mysql import insert
+from sqlalchemy import MetaData, Table, cast, literal_column
+from sqlalchemy.dialects.mysql import FLOAT, insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import and_, func, or_, select
 from sqlalchemy.sql.expression import Insert, Selectable, Subquery
@@ -111,7 +111,8 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     paxminer_region_sql = paxminer_region_query(metadata, cr)
 
     df_regions = pd.read_sql(paxminer_region_sql, engine)
-    insert_values = df_regions.to_dict("records")
+    df_regions = df_regions.convert_dtypes()
+    insert_values = df_regions.drop("beatdown_count", axis=1).to_dict("records")
     update_cols = ("region_name", "max_timestamp", "max_ts_edited")
     region_insert_sql = insert_statement(cr, insert_values, update_cols)
 
@@ -129,7 +130,10 @@ def region_queries(engine: Engine, metadata: MetaData) -> pd.DataFrame:
     }
 
     weaselbot_region_sql = weaselbot_region_query(metadata, cr)
-    df_regions = pd.read_sql(weaselbot_region_sql, engine, dtype=dtypes)
+    with engine.begin() as cnxn:
+        logging.info("Retrieving total region info.")
+        df_regions = pd.read_sql(weaselbot_region_sql, cnxn, dtype=dtypes)
+        logging.info("Done")
 
     return df_regions
 
@@ -183,7 +187,12 @@ def home_region_query(engine: Engine, metadata: MetaData) -> pd.DataFrame:
         "rn": pd.Int64Dtype(),
     }
 
-    return pd.read_sql(sql, engine, dtype=dtypes)
+    with engine.begin() as cnxn:
+        logging.info("Retrieving home region information...")
+        df = pd.read_sql(sql, cnxn, dtype=dtypes)
+        logging.info("Done")
+
+    return df
 
 
 def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
@@ -207,7 +216,9 @@ def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.D
     )
 
     with engine.begin() as cnxn:
+        logging.info(f"Retrieving user data from {usr.schema}.{usr.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
+        logging.info("Done")
 
     return df
 
@@ -218,7 +229,7 @@ def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.Dat
         ao = Table("aos", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
         logging.error(e)
-        return pd.Datarame(columns=dtypes.keys())
+        return pd.DataFrame(columns=dtypes.keys())
 
     sql = select(
         ao.c.channel_id.label("slack_channel_id"),
@@ -226,7 +237,9 @@ def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.Dat
         literal_column(f"'{row.region_id}'").label("region_id"),
     )
     with engine.begin() as cnxn:
+        logging.info(f"Retrieving ao data from {ao.schema}.{ao.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
+        logging.info("Done")
 
     return df
 
@@ -239,7 +252,7 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
         "pax_count": pd.Int16Dtype(),
         "fng_count": pd.Int16Dtype(),
         "region_id": pd.StringDtype(),
-        "timestamp": pd.Float64Dtype(),
+        "timestamp": pd.StringDtype(),
         "ts_edited": pd.StringDtype(),
         "backblast": pd.StringDtype(),
         "json": pd.StringDtype(),
@@ -266,14 +279,21 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
 
     if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
         sql = sql.where(
-            or_(beatdowns.c.timestamp > str(row.max_timestamp), beatdowns.c.ts_edited > str(row.max_ts_edited))
+            or_(
+                cast(beatdowns.c.timestamp, FLOAT()) > row.max_timestamp,
+                cast(beatdowns.c.ts_edited, FLOAT()) > row.max_ts_edited,
+            )
         )
     elif not isinstance(row.max_timestamp, type(pd.NA)):
-        sql = sql.where(beatdowns.c.timestamp > str(row.max_timestamp))
+        sql = sql.where(cast(beatdowns.c.timestamp, FLOAT()) > row.max_timestamp)
 
     with engine.begin() as cnxn:
+        logging.info(f"Retrieving beatdown info from {beatdowns.schema}.{beatdowns.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
+        logging.info("Done")
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce", downcast="float")
     df["json"] = df["json"].str.replace("'", '"')  # converting the string object to proper JSON
+    df["bd_date"] = pd.to_datetime(df["bd_date"], format="mixed", errors="coerce")
 
     return df
 
@@ -303,13 +323,20 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
     )
     if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
         sql = sql.where(
-            or_(attendance.c.timestamp > str(row.max_timestamp), attendance.c.ts_edited > str(row.max_ts_edited))
+            or_(
+                cast(attendance.c.timestamp, FLOAT()) > row.max_timestamp,
+                cast(attendance.c.ts_edited, FLOAT()) > row.max_ts_edited,
+            )
         )
     elif not isinstance(row.max_timestamp, type(pd.NA)):
-        sql = sql.where(attendance.c.timestamp > str(row.max_timestamp))
+        sql = sql.where(cast(attendance.c.timestamp, FLOAT()) > row.max_timestamp)
 
     with engine.begin() as cnxn:
+        logging.info(f"Retrieving attendance info from {attendance.schema}.{attendance.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
+        logging.info("Done")
+
+    df["bd_date"] = pd.to_datetime(df["bd_date"], format="mixed", errors="coerce")
 
     return df
 
@@ -364,22 +391,16 @@ def build_users(
     df_users.loc[mask, "home_region_id"] = df_users.loc[mask, "region_id"]
     mask = ~df_users["user_name_home"].isna()
     df_users.loc[mask, "user_name"] = df_users.loc[mask, "user_name_home"]
+    df_users["home_region_id"] = pd.to_numeric(df_users["home_region_id"], errors="coerce", downcast="integer")
 
-    insert_values = (
-        df_users[["user_name", "email", "region_id"]].rename({"region_id": "home_region_id"}, axis=1).to_dict("records")
-    )
-
-    for d in insert_values:
-        try:
-            d["home_region_id"] = int(d["home_region_id"])
-        except TypeError:
-            pass
-
+    insert_values = df_users[["user_name", "email", "home_region_id"]].to_dict("records")
     update_cols = ("user_name", "email", "home_region_id")
     user_insert_sql = insert_statement(cu, insert_values, update_cols)
 
     with engine.begin() as cnxn:
+        logging.info(f"Inserting {len(insert_values):,} records into {cu.schema}.{cu.name}")
         cnxn.execute(user_insert_sql)
+        logging.info("Done")
 
     dtypes = {
         "user_id": pd.StringDtype(),
@@ -390,24 +411,21 @@ def build_users(
 
     df_users = pd.read_sql(select(cu), engine, dtype=dtypes)
     df_users_dup = df_users_dup.merge(df_users[["email", "user_id"]], on="email", how="left")
+    df_users_dup["user_id"] = pd.to_numeric(df_users_dup["user_id"], errors="coerce", downcast="integer")
+    df_users_dup["region_id"] = pd.to_numeric(df_users_dup["region_id"], errors="coerce", downcast="integer")
 
-    insert_values = df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]].to_dict("records")
-
-    for d in insert_values:
-        try:
-            d["user_id"] = int(d["user_id"])
-        except TypeError:
-            pass  # allowing NA to flow through
-        try:
-            d["region_id"] = int(d["region_id"])
-        except TypeError:
-            pass
-
+    insert_values = (
+        df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]]
+        .drop_duplicates()
+        .to_dict("records")
+    )
     update_cols = ("user_name", "email", "region_id", "user_id")
     user_dup_insert_sql = insert_statement(cud, insert_values, update_cols)
 
     with engine.begin() as cnxn:
+        logging.info(f"Inserting {len(insert_values):,} into {cud.schema}.{cud.name}")
         cnxn.execute(user_dup_insert_sql)
+        logging.info("Done")
 
     return df_users_dup
 
@@ -440,7 +458,9 @@ def build_aos(df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.Da
     aos_insert_sql = insert_statement(ca, insert_values, update_cols)
 
     with engine.begin() as cnxn:
+        logging.info(f"Inserting {len(insert_values):,} into {ca.schema}.{ca.name}")
         cnxn.execute(aos_insert_sql)
+        logging.info("Done")
 
     dtypes = {
         "ao_id": pd.StringDtype(),
@@ -449,7 +469,12 @@ def build_aos(df_aos: pd.DataFrame, engine: Engine, metadata: MetaData) -> pd.Da
         "region_id": pd.StringDtype(),
     }
 
-    return pd.read_sql(select(ca), engine, dtype=dtypes)
+    with engine.begin() as cnxn:
+        logging.info(f"Retrieving new ao info from {ca.schema}.{ca.name}")
+        df = pd.read_sql(select(ca), cnxn, dtype=dtypes)
+        logging.info("Done")
+
+    return df
 
 
 def extract_user_id(slack_user_id) -> NAType | str:
@@ -503,6 +528,9 @@ def build_beatdowns(
     cb = metadata.tables["weaselbot.combined_beatdowns"]
 
     # find duplicate slack_user_ids on df_users_dup
+    # df_users_dup is the only table with the "region_id" field as an int in the database.
+    # Cast as a string so all other merges work in pandas
+    df_users_dup["region_id"] = df_users_dup["region_id"].astype(pd.StringDtype())
     df_beatdowns = (
         df_beatdowns.merge(
             df_users_dup[["slack_user_id", "user_id", "region_id"]],
@@ -526,6 +554,9 @@ def build_beatdowns(
     )
     df_beatdowns["fng_count"] = df_beatdowns["fng_count"].fillna(0)
 
+    for col in ("ao_id", "q_user_id", "coq_user_id"):
+        df_beatdowns[col] = pd.to_numeric(df_beatdowns[col], errors="coerce", downcast="integer")
+
     insert_values = df_beatdowns[df_beatdowns["ao_id"].notna()][
         [
             "ao_id",
@@ -548,11 +579,6 @@ def build_beatdowns(
     # This is the role of `ast.literal_eval`. If that's not the case, then just remove
     # the `if` statement logic to keep them as strings.
     for d in insert_values:
-        for col in ("ao_id", "q_user_id", "coq_user_id"):
-            try:
-                d[col] = int(d[col])
-            except TypeError:
-                pass
         if d["json"] is not None:
             d["json"] = ast.literal_eval(d["json"])
 
@@ -561,7 +587,9 @@ def build_beatdowns(
     beatdowns_insert_sql = insert_statement(cb, insert_values, update_cols)
 
     with engine.begin() as cnxn:
+        logging.info(f"Inserting {len(insert_values):,} records into {cb.schema}.{cb.name}")
         cnxn.execute(beatdowns_insert_sql)
+        logging.info("Done")
 
     dtypes = {
         "beatdown_id": pd.StringDtype(),
@@ -576,7 +604,10 @@ def build_beatdowns(
         "json": pd.StringDtype(),
     }
 
-    df_beatdowns = pd.read_sql(select(cb), engine, parse_dates={"bd_date": {"errors": "coerce"}}, dtype=dtypes)
+    with engine.begin() as cnxn:
+        logging.info(f"Pulling updated table {cb.schema}.{cb.name}")
+        df_beatdowns = pd.read_sql(select(cb), cnxn, parse_dates={"bd_date": {"errors": "coerce"}}, dtype=dtypes)
+        logging.info("Done")
     df_beatdowns.q_user_id = (
         df_beatdowns.q_user_id.astype(pd.Float64Dtype()).astype(pd.Int64Dtype()).astype(pd.StringDtype())
     )
@@ -615,6 +646,7 @@ def build_attendance(
     catt = metadata.tables["weaselbot.combined_attendance"]
     df_attendance["slack_user_id"] = df_attendance["slack_user_id"].apply(extract_user_id).astype(pd.StringDtype())
     df_attendance["slack_q_user_id"] = df_attendance["slack_q_user_id"].apply(extract_user_id).astype(pd.StringDtype())
+    df_users_dup["user_id"] = df_users_dup["user_id"].astype(pd.StringDtype())  #### New
     df_attendance = (
         (
             df_attendance.merge(
@@ -646,21 +678,18 @@ def build_attendance(
     df_attendance.drop_duplicates(subset=["beatdown_id", "user_id"], inplace=True)
     df_attendance = df_attendance[df_attendance["beatdown_id"].notnull()]
     df_attendance = df_attendance[df_attendance["user_id"].notnull()]
+    for col in ("beatdown_id", "user_id"):
+        df_attendance[col] = pd.to_numeric(df_attendance[col], errors="coerce", downcast="integer")
 
     insert_values = df_attendance[["beatdown_id", "user_id", "json"]].to_dict("records")
-
-    for d in insert_values:
-        for col in ("beatdown_id", "user_id"):
-            try:
-                d[col] = int(d[col])
-            except TypeError:
-                pass
 
     update_cols = ("beatdown_id", "json")
     attendance_insert_sql = insert_statement(catt, insert_values, update_cols)
 
     with engine.begin() as cnxn:
+        logging.info(f"Inserting {len(insert_values):,} values into {catt.schema}.{catt.name}")
         cnxn.execute(attendance_insert_sql)
+        logging.info("Done")
 
 
 def build_regions(engine: Engine, metadata: MetaData) -> None:
@@ -682,7 +711,9 @@ def build_regions(engine: Engine, metadata: MetaData) -> None:
     region_insert_sql = insert_statement(cr, insert_values, update_cols)
 
     with engine.begin() as cnxn:
+        logging.info(f"Inserting {len(insert_values):,} values into {cr.schema}.{cr.name}")
         cnxn.execute(region_insert_sql)
+        logging.info("Done")
 
 
 def main() -> None:
@@ -714,7 +745,7 @@ def main() -> None:
     df_beatdowns = pd.concat([x for x in df_beatdowns_list if not x.empty])
     df_attendance = pd.concat([x for x in df_attendance_list if not x.empty])
 
-    df_beatdowns.ts_edited = df_beatdowns.ts_edited.replace("NA", pd.NA).astype(pd.Float64Dtype())
+    df_beatdowns.ts_edited = pd.to_numeric(df_beatdowns.ts_edited, errors="coerce", downcast="float")
 
     logging.info(f"beatdowns to process: {len(df_beatdowns)}")
     df_users_dup = build_users(df_users_dup, df_attendance, df_home_region, engine, metadata)

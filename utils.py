@@ -17,8 +17,6 @@ from slack_sdk.errors import SlackApiError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-logging.basicConfig(format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.DEBUG, datefmt="%Y-%m-%d %H:%M:%S")
-
 
 def mysql_connection() -> Engine:
     """
@@ -225,6 +223,8 @@ def send_to_slack(
             logging.info(sMessage)
             try:
                 response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
+                client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response.get("ts"))
+                logging.info("Successfully added reaction.")
                 logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
             except SlackApiError as e:
                 if e.response.status_code == 429:
@@ -232,13 +232,12 @@ def send_to_slack(
                     logging.info(f"Pausing Slack notifications for {delay} seconds.")
                     time.sleep(delay)
                     response = client.chat_postMessage(channel=row.achievement_channel, text=sMessage, link_names=True)
+                    client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response.get("ts"))
+                    logging.info("Successfully added reaction.")
                     logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
                 else:
                     logging.error(f"Slack API gave error code: {e.response.status_code}")
                     continue
-            finally:
-                client.reactions_add(channel=row.achievement_channel, name="fire", timestamp=response["ts"])
-                logging.info("Successfully added reaction.")
 
         logging.info(f"Successfully sent all slack messages to {row.paxminer_schema} for achievement {idx}")
 

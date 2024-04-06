@@ -416,7 +416,7 @@ def main():
 
         token = row.slack_token
         client = slack_client(token)
-        # send_weaselbot_report(row, client, df_siteq, df_posts, df_qs)
+        send_weaselbot_report(row, client, df_siteq, df_posts, df_qs)
 
         notify_yhc(row, engine, metadata, client)
 
