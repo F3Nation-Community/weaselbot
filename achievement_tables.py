@@ -1,13 +1,12 @@
 from sqlalchemy import Column, ForeignKey, MetaData, Table, func, select, text
 from sqlalchemy.dialects.mysql import DATE, DATETIME, INTEGER, VARCHAR, insert
 
-from create_view import view
 from utils import mysql_connection
 
 engine = mysql_connection()
 metadata = MetaData()
 
-schema = "f3chicago"
+schema = "f3lexingtonsc"
 MYSQL_ENGINE = "InnoDB"
 MYSQL_CHARSET = "utf8mb3"
 MYSQL_COLLATE = "utf8mb3_general_ci"
@@ -39,30 +38,6 @@ Table(
     mysql_collate=MYSQL_COLLATE,
     schema=schema,
 )
-
-with engine.begin() as cnxn:
-    metadata.drop_all(cnxn)
-    metadata.create_all(cnxn)
-    cnxn.execute(f"ALTER TABLE {schema}.aos ADD site_q_user_id VARCHAR(45) NULL;")
-
-
-u = Table("users", metadata, autoload_with=engine, schema=schema)
-aa = metadata.tables[f"{schema}.achievements_awarded"]
-al = metadata.tables[f"{schema}.achievements_list"]
-
-stuff_view = view(
-    "stuff_view",
-    metadata,
-    select(
-        u.c.user_name.label("pax"),
-        u.c.user_id.label("pax_id"),
-        al.c.name.label("name"),
-        al.c.description.label("description"),
-        aa.c.date_awarded.label("date_awarded"),
-    ).select_from(u.join(al, u.c.user_id == aa.c.pax_id).join(al, aa.c.achievement_id == al.c.id)),
-)
-
-stuff_view.create(engine)
 
 insert_vals = [
     {
@@ -155,6 +130,27 @@ t = metadata.tables[f"{schema}.achievements_list"]
 sql = insert(t).values(insert_vals)
 
 with engine.begin() as cnxn:
+    metadata.drop_all(cnxn)
+    metadata.create_all(cnxn)
     cnxn.execute(sql)
+    cnxn.execute(text(f"ALTER TABLE {schema}.aos ADD site_q_user_id VARCHAR(45) NULL;"))
+
+
+u = Table("users", metadata, autoload_with=engine, schema=schema)
+aa = metadata.tables[f"{schema}.achievements_awarded"]
+al = metadata.tables[f"{schema}.achievements_list"]
+
+sql = select(
+        u.c.user_name.label("pax"),
+        u.c.user_id.label("pax_id"),
+        al.c.name,
+        al.c.description,
+        aa.c.date_awarded,
+    ).select_from(u.join(aa, u.c.user_id == aa.c.pax_id).join(al, aa.c.achievement_id == al.c.id))
+
+view = f"""CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"""
+
+with engine.begin() as cnxn:
+    cnxn.execute(text(view))
 
 engine.dispose()
