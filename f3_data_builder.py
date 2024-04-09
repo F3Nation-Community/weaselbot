@@ -2,14 +2,15 @@
 
 import ast
 import logging
+import sys
 from typing import Any, Hashable, Tuple
 
 import pandas as pd
 from pandas._libs.missing import NAType
-from sqlalchemy import MetaData, Table, cast, literal_column
-from sqlalchemy.dialects.mysql import FLOAT, insert
+from sqlalchemy import MetaData, Table, literal_column
+from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.sql import and_, func, or_, select
+from sqlalchemy.sql import and_, func, select
 from sqlalchemy.sql.expression import Insert, Selectable, Subquery
 
 from utils import mysql_connection
@@ -262,6 +263,28 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
     except Exception as e:
         logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
+    try:
+        cr = metadata.tables["weaselbot.combined_regions"]
+    except KeyError:
+        cr = Table("combined_regions", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        ao = metadata.tables["weaselbot.combined_aos"]
+    except KeyError:
+        ao = Table("combined_aos", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        cb = metadata.tables["weaselbot.combined_beatdowns"]
+    except KeyError:
+        cb = Table("combined_beatdowns", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        cud = metadata.tables["weaselbot.combined_users_dup"]
+    except KeyError:
+        cud = Table("combined_users_dup", metadata, autoload_with=engine, schema="weaselbot")
+
+    cte = select(ao.c.slack_channel_id, cb.c.bd_date, cud.c.slack_user_id, cr.c.schema_name)
+    cte = cte.select_from(ao.join(cb, ao.c.ao_id == cb.c.ao_id)
+                          .join(cud, cb.c.q_user_id == cud.c.user_id)
+                          .join(cr, cr.c.region_id == cud.c.region_id)).cte()
+
 
     sql = select(
         beatdowns.c.ao_id.label("slack_channel_id"),
@@ -276,21 +299,16 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
         beatdowns.c.backblast,
         beatdowns.c.json,
     )
-
-    if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
-        sql = sql.where(
-            or_(
-                cast(beatdowns.c.timestamp, FLOAT()) > row.max_timestamp,
-                cast(beatdowns.c.ts_edited, FLOAT()) > row.max_ts_edited,
-            )
-        )
-    elif not isinstance(row.max_timestamp, type(pd.NA)):
-        sql = sql.where(cast(beatdowns.c.timestamp, FLOAT()) > row.max_timestamp)
+    sql = sql.outerjoin(cte, and_(cte.c.slack_channel_id == beatdowns.c.ao_id,
+                        cte.c.bd_date == beatdowns.c.bd_date,
+                        cte.c.slack_user_id == beatdowns.c.q_user_id,
+                        cte.c.schema_name == row.schema_name))
+    sql = sql.where(cte.c.slack_user_id == None)
 
     with engine.begin() as cnxn:
         logging.info(f"Retrieving beatdown info from {beatdowns.schema}.{beatdowns.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-        logging.info("Done")
+        logging.info(f"Done with {df.shape[0]} records.")
     df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce", downcast="float")
     df["json"] = df["json"].str.replace("'", '"')  # converting the string object to proper JSON
     df["bd_date"] = pd.to_datetime(df["bd_date"], format="mixed", errors="coerce")
@@ -308,10 +326,41 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
     }
 
     try:
+        cr = metadata.tables["weaselbot.combined_regions"]
+    except KeyError:
+        cr = Table("combined_regions", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        ao = metadata.tables["weaselbot.combined_aos"]
+    except KeyError:
+        ao = Table("combined_aos", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        cb = metadata.tables["weaselbot.combined_beatdowns"]
+    except KeyError:
+        cb = Table("combined_beatdowns", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        cud = metadata.tables["weaselbot.combined_users_dup"]
+    except KeyError:
+        cud = Table("combined_users_dup", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        ca = metadata.tables["weaselbot.combined_attendance"]
+    except KeyError:
+        ca = Table("combined_attendance", metadata, autoload_with=engine, schema="weaselbot")
+    try:
+        cu = metadata.tables["weaselbot.combined_users"]
+    except KeyError:
+        cu = Table("combined_users", metadata, autoload_with=engine, schema="weaselbot")
+    try:
         attendance = Table("bd_attendance", metadata, autoload_with=engine, schema=row.schema_name)
     except Exception as e:
         logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
+    
+    cte = select(ao.c.slack_channel_id, cb.c.bd_date, cud.c.slack_user_id, cr.c.schema_name)
+    cte = cte.select_from(cu.join(ca, cu.c.user_id == ca.c.user_id)
+                          .join(cb, ca.c.beatdown_id == cb.c.beatdown_id)
+                          .join(ao, ao.c.ao_id == cb.c.ao_id)
+                          .join(cr, cr.c.region_id == ao.c.region_id)
+                          .join(cud, and_(cud.c.user_id == cu.c.user_id, cud.c.region_id == ao.c.region_id))).cte()
 
     sql = select(
         attendance.c.ao_id.label("slack_channel_id"),
@@ -321,20 +370,16 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
         literal_column(f"'{row.region_id}'").label("region_id"),
         attendance.c.json,
     )
-    if all(not isinstance(x, type(pd.NA)) for x in (row.max_timestamp, row.max_ts_edited)):
-        sql = sql.where(
-            or_(
-                cast(attendance.c.timestamp, FLOAT()) > row.max_timestamp,
-                cast(attendance.c.ts_edited, FLOAT()) > row.max_ts_edited,
-            )
-        )
-    elif not isinstance(row.max_timestamp, type(pd.NA)):
-        sql = sql.where(cast(attendance.c.timestamp, FLOAT()) > row.max_timestamp)
+    sql = sql.outerjoin(cte, and_(cte.c.slack_channel_id == attendance.c.ao_id,
+                        cte.c.bd_date == attendance.c.date,
+                        cte.c.slack_user_id == attendance.c.q_user_id,
+                        cte.c.schema_name == row.schema_name))
+    sql = sql.where(cte.c.slack_user_id == None)
 
     with engine.begin() as cnxn:
         logging.info(f"Retrieving attendance info from {attendance.schema}.{attendance.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-        logging.info("Done")
+        logging.info(f"Done with {df.shape[0]} records")
 
     df["bd_date"] = pd.to_datetime(df["bd_date"], format="mixed", errors="coerce")
 
@@ -370,27 +415,27 @@ def build_users(
     cu = metadata.tables["weaselbot.combined_users"]
     cud = metadata.tables["weaselbot.combined_users_dup"]
 
-    df_users_dup["email"] = df_users_dup["email"].str.lower()
+    df_users_dup["email"] = df_users_dup["email"].str.lower().replace("none", pd.NA)
     df_users_dup = df_users_dup[df_users_dup["email"].notna()]
 
     df_user_agg = (
         df_attendance.groupby(["slack_user_id"], as_index=False)["bd_date"].count().rename({"bd_date": "count"}, axis=1)
     )
     df_users = (
-        df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left")
-        .fillna(0)
+        df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left") ### how="inner"????
+        .fillna(0) ### why? Wouldn't it be better to leave as na?
         .sort_values(by="count", ascending=False)
+        .drop_duplicates(subset=["email"], keep="first")
     )
-
-    df_users.drop_duplicates(subset=["email"], keep="first", inplace=True)
 
     # update home region using df_home_region
     df_home_region.rename(columns={"user_name": "user_name_home"}, inplace=True)
     df_users = df_users.merge(df_home_region[["user_name_home", "email", "home_region_id"]], on="email", how="left")
     mask = df_users["home_region_id"].isna()
     df_users.loc[mask, "home_region_id"] = df_users.loc[mask, "region_id"]
-    mask = ~df_users["user_name_home"].isna()
-    df_users.loc[mask, "user_name"] = df_users.loc[mask, "user_name_home"]
+    mask = df_users["user_name_home"].isna()
+    df_users.loc[~mask, "user_name"] = df_users.loc[~mask, "user_name_home"]
+    df_users.loc[mask, "user_name_home"] = df_users.loc[mask, "user_name"]
     df_users["home_region_id"] = pd.to_numeric(df_users["home_region_id"], errors="coerce", downcast="integer")
 
     #### This new section is to try to prevent uploading thousands of records to the table, taking up
@@ -404,10 +449,10 @@ def build_users(
     cols = ["user_name", "email", "home_region_id"]
     df_users = (
         df_users[cols]
-        .merge(combined_users[cols], how="outer", on=cols[:2])
-        .loc[lambda x: x.home_region_id_x != x.home_region_id_y]
-        .drop("home_region_id_y", axis=1)
-        .rename({"home_region_id_x": "home_region_id"}, axis=1)
+        .merge(combined_users[cols], how="left", on=cols, indicator=True)
+        .dropna()
+        .loc[lambda x: x._merge == "left_only"]
+        .drop("_merge", axis=1)
     )
     #### End new logic to reduce load size
 
@@ -438,33 +483,27 @@ def build_users(
     df_users_dup["user_id"] = pd.to_numeric(df_users_dup["user_id"], errors="coerce", downcast="integer")
     df_users_dup["region_id"] = pd.to_numeric(df_users_dup["region_id"], errors="coerce", downcast="integer")
 
-    #### This new section is to try to prevent uploading thousands of records to the table, taking up
-    #### a large amount of time. The idea: pull the existing table as a pandas dataframe. Then, merge them,
-    #### keeping only what's different between the two tables.
+    ### This new section is to try to prevent uploading thousands of records to the table, taking up
+    ### a large amount of time. The idea: pull the existing table as a pandas dataframe. Then, merge them,
+    ### keeping only what's different between the two tables.
     with engine.begin() as cnxn:
         combined_users_dup = pd.read_sql(select(cud), cnxn)
 
     combined_users_dup = combined_users_dup.convert_dtypes()
 
     cols = ["slack_user_id", "user_name", "email", "region_id", "user_id"]
-    df_users_dup = (
+    df_users_dup_load = (
         df_users_dup[cols]
-        .merge(combined_users_dup[cols], how="outer", on="slack_user_id")
+        .merge(combined_users_dup[cols], how="left", on=cols, indicator=True)
         .loc[
-            lambda x: (x.user_name_x != x.user_name_y)
-            | (x.email_x != x.email_y)
-            | (x.region_id_x != x.region_id_y)
-            | (x.user_id_x != x.user_id_y)
+            lambda x: x._merge == 'left_only'
         ]
-        .drop(["user_name_y", "email_y", "region_id_y", "user_id_y"], axis=1)
-        .rename(
-            {"user_name_x": "user_name", "email_x": "email", "region_id_x": "region_id", "user_id_x": "user_id"}, axis=1
-        )
+        .drop(["_merge"], axis=1)
     )
-    #### End new logic to reduce load size
+    ### End new logic to reduce load size
 
     insert_values = (
-        df_users_dup[["slack_user_id", "user_name", "email", "region_id", "user_id"]]
+        df_users_dup_load[["slack_user_id", "user_name", "email", "region_id", "user_id"]]
         .drop_duplicates()
         .to_dict("records")
     )
@@ -799,8 +838,12 @@ def main() -> None:
 
     df_users_dup = pd.concat([x for x in df_users_dup_list if not x.empty])
     df_aos = pd.concat([x for x in df_aos_list if not x.empty])
-    df_beatdowns = pd.concat([x for x in df_beatdowns_list if not x.empty])
-    df_attendance = pd.concat([x for x in df_attendance_list if not x.empty])
+    try:
+        df_beatdowns = pd.concat([x for x in df_beatdowns_list if not x.empty])
+        df_attendance = pd.concat([x for x in df_attendance_list if not x.empty])
+    except ValueError:
+        logging.info("No new beatdowns to process.")
+        sys.exit(0)
 
     df_beatdowns.ts_edited = pd.to_numeric(df_beatdowns.ts_edited, errors="coerce", downcast="float")
 
