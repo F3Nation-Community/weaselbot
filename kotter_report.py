@@ -45,7 +45,11 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
     :rtype: str
     """
 
-    siteq = f"@{siteq}" if siteq[0].upper() == "U" else "!channel"
+    try:
+        siteq = f"@{siteq}" if siteq[0].upper() == "U" else "!channel"
+    except (IndexError, TypeError) as e:
+        logging.error(e)
+        siteq = "!channel"
     sMessage = [
         f"Howdy, <{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",
     ]
