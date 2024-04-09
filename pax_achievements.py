@@ -1,5 +1,3 @@
-#!/usr/bin/env /home/epetz/.cache/pypoetry/virtualenvs/weaselbot-7wWSi8jP-py3.11/bin/python3.11
-
 import logging
 from datetime import date
 
