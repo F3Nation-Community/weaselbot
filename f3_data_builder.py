@@ -217,9 +217,9 @@ def pull_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.D
     )
 
     with engine.begin() as cnxn:
-        logging.info(f"Retrieving user data from {usr.schema}.{usr.name}")
+        logging.debug(f"Retrieving user data from {usr.schema}.{usr.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-        logging.info("Done")
+        logging.debug("Done")
 
     return df
 
@@ -238,9 +238,9 @@ def pull_aos(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.Dat
         literal_column(f"'{row.region_id}'").label("region_id"),
     )
     with engine.begin() as cnxn:
-        logging.info(f"Retrieving ao data from {ao.schema}.{ao.name}")
+        logging.debug(f"Retrieving ao data from {ao.schema}.{ao.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-        logging.info("Done")
+        logging.debug("Done")
 
     return df
 
@@ -283,7 +283,8 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
     cte = select(ao.c.slack_channel_id, cb.c.bd_date, cud.c.slack_user_id, cr.c.schema_name)
     cte = cte.select_from(ao.join(cb, ao.c.ao_id == cb.c.ao_id)
                           .join(cud, cb.c.q_user_id == cud.c.user_id)
-                          .join(cr, cr.c.region_id == cud.c.region_id)).cte()
+                          .join(cr, cr.c.region_id == cud.c.region_id))
+    cte = cte.where(cud.c.slack_user_id != None).cte()
 
 
     sql = select(
@@ -303,12 +304,12 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
                         cte.c.bd_date == beatdowns.c.bd_date,
                         cte.c.slack_user_id == beatdowns.c.q_user_id,
                         cte.c.schema_name == row.schema_name))
-    sql = sql.where(cte.c.slack_user_id == None)
+    sql = sql.where(and_(cte.c.slack_user_id == None, beatdowns.c.q_user_id != None))
 
     with engine.begin() as cnxn:
-        logging.info(f"Retrieving beatdown info from {beatdowns.schema}.{beatdowns.name}")
+        logging.debug(f"Retrieving beatdown info from {beatdowns.schema}.{beatdowns.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-        logging.info(f"Done with {df.shape[0]} records.")
+        logging.debug(f"Done with {df.shape[0]} records.")
     df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce", downcast="float")
     df["json"] = df["json"].str.replace("'", '"')  # converting the string object to proper JSON
     df["bd_date"] = pd.to_datetime(df["bd_date"], format="mixed", errors="coerce")
@@ -374,12 +375,12 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
                         cte.c.bd_date == attendance.c.date,
                         cte.c.slack_user_id == attendance.c.q_user_id,
                         cte.c.schema_name == row.schema_name))
-    sql = sql.where(cte.c.slack_user_id == None)
+    sql = sql.where(and_(cte.c.slack_user_id == None, attendance.c.q_user_id != None))
 
     with engine.begin() as cnxn:
-        logging.info(f"Retrieving attendance info from {attendance.schema}.{attendance.name}")
+        logging.debug(f"Retrieving attendance info from {attendance.schema}.{attendance.name}")
         df = pd.read_sql(sql, cnxn, dtype=dtypes)
-        logging.info(f"Done with {df.shape[0]} records")
+        logging.debug(f"Done with {df.shape[0]} records")
 
     df["bd_date"] = pd.to_datetime(df["bd_date"], format="mixed", errors="coerce")
 
@@ -650,7 +651,7 @@ def build_beatdowns(
     for col in ("ao_id", "q_user_id", "coq_user_id"):
         df_beatdowns[col] = pd.to_numeric(df_beatdowns[col], errors="coerce", downcast="integer")
 
-    insert_values = df_beatdowns[df_beatdowns["ao_id"].notna()][
+    insert_values = df_beatdowns[(df_beatdowns["ao_id"].notna()) & (df_beatdowns["q_user_id"].notna())][
         [
             "ao_id",
             "bd_date",
@@ -680,7 +681,7 @@ def build_beatdowns(
     beatdowns_insert_sql = insert_statement(cb, insert_values, update_cols)
 
     with engine.begin() as cnxn:
-        logging.info(f"Inserting {len(insert_values):,} records into {cb.schema}.{cb.name}")
+        logging.info(f"Upserting {len(insert_values):,} records into {cb.schema}.{cb.name}")
         cnxn.execute(beatdowns_insert_sql)
         logging.info("Done")
 
@@ -773,6 +774,8 @@ def build_attendance(
     df_attendance = df_attendance[df_attendance["user_id"].notnull()]
     for col in ("beatdown_id", "user_id"):
         df_attendance[col] = pd.to_numeric(df_attendance[col], errors="coerce", downcast="integer")
+
+    df_attendance = df_attendance.loc[df_attendance["user_id"].notna()]
 
     insert_values = df_attendance[["beatdown_id", "user_id", "json"]].to_dict("records")
 

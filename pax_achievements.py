@@ -38,7 +38,8 @@ def nation_sql(metadata: MetaData, year: int) -> Selectable:
         .join(r, u.c.home_region_id == r.c.region_id)
     )
     sql = sql.where(
-        b.c.bd_date.between(f"{year}-01-01", func.curdate()), u.c.email != "none", u.c.user_name != "PAXminer"
+        b.c.bd_date.between(f"{year}-01-01", func.curdate()), u.c.email != "none", u.c.user_name != "PAXminer",
+        b.c.q_user_id != None
     )
 
     return sql
