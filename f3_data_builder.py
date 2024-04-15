@@ -281,11 +281,12 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
         cud = Table("combined_users_dup", metadata, autoload_with=engine, schema="weaselbot")
 
     cte = select(ao.c.slack_channel_id, cb.c.bd_date, cud.c.slack_user_id, cr.c.schema_name)
-    cte = cte.select_from(ao.join(cb, ao.c.ao_id == cb.c.ao_id)
-                          .join(cud, cb.c.q_user_id == cud.c.user_id)
-                          .join(cr, cr.c.region_id == cud.c.region_id))
+    cte = cte.select_from(
+        ao.join(cb, ao.c.ao_id == cb.c.ao_id)
+        .join(cud, cb.c.q_user_id == cud.c.user_id)
+        .join(cr, cr.c.region_id == cud.c.region_id)
+    )
     cte = cte.where(cud.c.slack_user_id != None).cte()
-
 
     sql = select(
         beatdowns.c.ao_id.label("slack_channel_id"),
@@ -300,10 +301,15 @@ def pull_beatdowns(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> 
         beatdowns.c.backblast,
         beatdowns.c.json,
     )
-    sql = sql.outerjoin(cte, and_(cte.c.slack_channel_id == beatdowns.c.ao_id,
-                        cte.c.bd_date == beatdowns.c.bd_date,
-                        cte.c.slack_user_id == beatdowns.c.q_user_id,
-                        cte.c.schema_name == row.schema_name))
+    sql = sql.outerjoin(
+        cte,
+        and_(
+            cte.c.slack_channel_id == beatdowns.c.ao_id,
+            cte.c.bd_date == beatdowns.c.bd_date,
+            cte.c.slack_user_id == beatdowns.c.q_user_id,
+            cte.c.schema_name == row.schema_name,
+        ),
+    )
     sql = sql.where(and_(cte.c.slack_user_id == None, beatdowns.c.q_user_id != None))
 
     with engine.begin() as cnxn:
@@ -355,13 +361,15 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
     except Exception as e:
         logging.error(e)
         return pd.DataFrame(columns=dtypes.keys())
-    
+
     cte = select(ao.c.slack_channel_id, cb.c.bd_date, cud.c.slack_user_id, cr.c.schema_name)
-    cte = cte.select_from(cu.join(ca, cu.c.user_id == ca.c.user_id)
-                          .join(cb, ca.c.beatdown_id == cb.c.beatdown_id)
-                          .join(ao, ao.c.ao_id == cb.c.ao_id)
-                          .join(cr, cr.c.region_id == ao.c.region_id)
-                          .join(cud, and_(cud.c.user_id == cu.c.user_id, cud.c.region_id == ao.c.region_id))).cte()
+    cte = cte.select_from(
+        cu.join(ca, cu.c.user_id == ca.c.user_id)
+        .join(cb, ca.c.beatdown_id == cb.c.beatdown_id)
+        .join(ao, ao.c.ao_id == cb.c.ao_id)
+        .join(cr, cr.c.region_id == ao.c.region_id)
+        .join(cud, and_(cud.c.user_id == cu.c.user_id, cud.c.region_id == ao.c.region_id))
+    ).cte()
 
     sql = select(
         attendance.c.ao_id.label("slack_channel_id"),
@@ -371,10 +379,15 @@ def pull_attendance(row: tuple[Any, ...], engine: Engine, metadata: MetaData) ->
         literal_column(f"'{row.region_id}'").label("region_id"),
         attendance.c.json,
     )
-    sql = sql.outerjoin(cte, and_(cte.c.slack_channel_id == attendance.c.ao_id,
-                        cte.c.bd_date == attendance.c.date,
-                        cte.c.slack_user_id == attendance.c.q_user_id,
-                        cte.c.schema_name == row.schema_name))
+    sql = sql.outerjoin(
+        cte,
+        and_(
+            cte.c.slack_channel_id == attendance.c.ao_id,
+            cte.c.bd_date == attendance.c.date,
+            cte.c.slack_user_id == attendance.c.q_user_id,
+            cte.c.schema_name == row.schema_name,
+        ),
+    )
     sql = sql.where(and_(cte.c.slack_user_id == None, attendance.c.q_user_id != None))
 
     with engine.begin() as cnxn:
@@ -423,8 +436,8 @@ def build_users(
         df_attendance.groupby(["slack_user_id"], as_index=False)["bd_date"].count().rename({"bd_date": "count"}, axis=1)
     )
     df_users = (
-        df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left") ### how="inner"????
-        .fillna(0) ### why? Wouldn't it be better to leave as na?
+        df_users_dup.merge(df_user_agg[["slack_user_id", "count"]], on="slack_user_id", how="left")  ### how="inner"????
+        .fillna(0)  ### why? Wouldn't it be better to leave as na?
         .sort_values(by="count", ascending=False)
         .drop_duplicates(subset=["email"], keep="first")
     )
@@ -496,9 +509,7 @@ def build_users(
     df_users_dup_load = (
         df_users_dup[cols]
         .merge(combined_users_dup[cols], how="left", on=cols, indicator=True)
-        .loc[
-            lambda x: x._merge == 'left_only'
-        ]
+        .loc[lambda x: x._merge == "left_only"]
         .drop(["_merge"], axis=1)
     )
     ### End new logic to reduce load size

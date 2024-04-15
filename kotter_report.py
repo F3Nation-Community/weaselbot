@@ -14,6 +14,47 @@ from sqlalchemy.sql import Selectable, and_, case, func, or_, select
 
 from utils import mysql_connection, slack_client
 
+"""
+SELECT DISTINCT 
+U.user_name AS PAX, 
+U.real_name AS Real_Name, 
+U.phone AS Phone, 
+U.email AS Email, 
+latest.AO, 
+latest.Last_Post, 
+total.Total_Posts, 
+p3.Home_AO, 
+p3.Home_AO_Posts
+FROM users U
+INNER JOIN (
+	SELECT t.PAX, t.AO, t.Date as Last_Post
+	FROM attendance_view t
+	INNER JOIN (
+		SELECT PAX, MAX(Date) AS MaxDate
+		FROM attendance_view av
+		WHERE av.DATE > NOW() - INTERVAL 365 DAY
+		GROUP BY PAX) tm ON t.PAX = tm.PAX AND t.Date = tm.MaxDate) AS latest
+ON U.user_name = latest.PAX 
+INNER JOIN (
+	SELECT PAX, COUNT(*) AS Total_Posts
+    FROM attendance_view
+    GROUP BY PAX) as total
+ON latest.PAX = total.PAX
+INNER JOIN (
+	SELECT p2.PAX, p2.Home_AO, p2.Home_AO_Posts
+	FROM (
+		SELECT PAX, Home_AO, Home_AO_Posts, ROW_NUMBER()
+		OVER(PARTITION BY PAX ORDER BY Home_AO_Posts DESC) rowNumber
+		FROM (
+			SELECT PAX, AO as Home_AO, COUNT(PAX) as Home_AO_Posts
+			FROM attendance_view
+			GROUP BY PAX, Home_AO) pp) p2
+	WHERE p2.rowNumber = 1) as p3
+ON p3.PAX = latest.PAX
+WHERE Last_Post < NOW() - INTERVAL 30 DAY
+ORDER BY Home_AO, Home_AO_Posts Desc
+"""
+
 NO_POST_THRESHOLD = 2
 REMINDER_WEEKS = 2
 HOME_AO_CAPTURE = datetime.combine(date.today() + timedelta(weeks=-8), datetime.min.time())

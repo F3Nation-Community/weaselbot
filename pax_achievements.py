@@ -38,8 +38,10 @@ def nation_sql(metadata: MetaData, year: int) -> Selectable:
         .join(r, u.c.home_region_id == r.c.region_id)
     )
     sql = sql.where(
-        b.c.bd_date.between(f"{year}-01-01", func.curdate()), u.c.email != "none", u.c.user_name != "PAXminer",
-        b.c.q_user_id != None
+        b.c.bd_date.between(f"{year}-01-01", func.curdate()),
+        u.c.email != "none",
+        u.c.user_name != "PAXminer",
+        b.c.q_user_id != None,
     )
 
     return sql
@@ -234,7 +236,10 @@ def main():
     dfs.append(hdtf(nation_df, bb_filter, ao_filter))
 
     for row in df_regions.itertuples(index=False):
-        ao = metadata.tables[f"{row.paxminer_schema}.aos"]
+        try:
+            ao = metadata.tables[f"{row.paxminer_schema}.aos"]
+        except KeyError:
+            ao = Table("aos", metadata, autoload_with=engine, schema=row.paxminer_schema)
         with engine.begin() as cnxn:
             paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
         try:

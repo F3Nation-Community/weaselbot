@@ -141,14 +141,16 @@ aa = metadata.tables[f"{schema}.achievements_awarded"]
 al = metadata.tables[f"{schema}.achievements_list"]
 
 sql = select(
-        u.c.user_name.label("pax"),
-        u.c.user_id.label("pax_id"),
-        al.c.name,
-        al.c.description,
-        aa.c.date_awarded,
-    ).select_from(u.join(aa, u.c.user_id == aa.c.pax_id).join(al, aa.c.achievement_id == al.c.id))
+    u.c.user_name.label("pax"),
+    u.c.user_id.label("pax_id"),
+    al.c.name,
+    al.c.description,
+    aa.c.date_awarded,
+).select_from(u.join(aa, u.c.user_id == aa.c.pax_id).join(al, aa.c.achievement_id == al.c.id))
 
-view = f"""CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"""
+view = (
+    f"""CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"""
+)
 
 with engine.begin() as cnxn:
     cnxn.execute(text(view))

@@ -136,7 +136,12 @@ def ordinal_suffix(n: int) -> str:
 
 
 def send_to_slack(
-    row: NamedTuple, year: int, awarded: pd.DataFrame, awards: pd.DataFrame, dfs: list[pd.DataFrame], paxminer_log_channel: str
+    row: NamedTuple,
+    year: int,
+    awarded: pd.DataFrame,
+    awards: pd.DataFrame,
+    dfs: list[pd.DataFrame],
+    paxminer_log_channel: str,
 ) -> pd.DataFrame:
     """
     Take the region data set and for new records, write them to the `achievements_awarded` table along with
@@ -238,15 +243,20 @@ def send_to_slack(
                 else:
                     logging.error(f"Slack API gave error code: {e.response.status_code}")
                     continue
-        try:
-            client.chat_postMessage(channel=paxminer_log_channel, text="Successfully ran today's Weaselbot achievements patch.")
-        except SlackApiError as e:
-            logging.error(f"Error sending message to {paxminer_log_channel}: {e}")
-
-        logging.info(f"Successfully sent all slack messages to {row.paxminer_schema} for achievement {idx}")
 
         new_data["achievement_id"] = idx
         data_to_upload = pd.concat(
             [data_to_upload, new_data[["achievement_id", "pax_id", "date_awarded"]]], ignore_index=True
         )
+
+    try:
+        client.chat_postMessage(
+            channel=paxminer_log_channel,
+            text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
+        )
+    except SlackApiError as e:
+        logging.error(f"Error sending message to {paxminer_log_channel}: {e}")
+
+    logging.info(f"Sent all slack messages to {row.paxminer_schema} for achievement {idx}")
+
     return data_to_upload
