@@ -234,6 +234,9 @@ def main():
     dfs.append(hdtf(nation_df, bb_filter, ao_filter))
 
     for row in df_regions.itertuples(index=False):
+        ao = metadata.tables[f"{row.paxminer_schema}.aos"]
+        with engine.begin() as cnxn:
+            paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
         try:
             awarded = pd.read_sql(
                 award_view(row, engine, metadata, year), engine, parse_dates=["date_awarded", "created", "updated"]
@@ -242,9 +245,10 @@ def main():
         except NoSuchTableError:
             logging.error(f"{row.paxminer_schema} isn't signed up for Weaselbot achievements.")
             continue
-        data_to_load = send_to_slack(row, year, awarded, awards, dfs)
+        data_to_load = send_to_slack(row, year, awarded, awards, dfs, paxminer_log_channel)
         if not data_to_load.empty:
             load_to_database(row, engine, metadata, data_to_load)
+
         logging.info(f"Successfully loaded all records and sent all Slack messages for {row.paxminer_schema}.")
 
     engine.dispose()
