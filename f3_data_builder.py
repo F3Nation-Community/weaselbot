@@ -685,7 +685,11 @@ def build_beatdowns(
     # the `if` statement logic to keep them as strings.
     for d in insert_values:
         if d["json"] is not None:
-            d["json"] = ast.literal_eval(d["json"])
+            try:
+                d["json"] = ast.literal_eval(d["json"])
+            except SyntaxError:
+                print(d)
+                d["json"] = None
 
     update_cols = ("coq_user_id", "pax_count", "fng_count", "timestamp", "ts_edited", "backblast", "json")
 
