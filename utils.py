@@ -241,7 +241,9 @@ def send_to_slack(
                     logging.info("Successfully added reaction.")
                     logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
                 else:
-                    logging.error(f"Slack API gave error code: {e.response.status_code}")
+                    logging.error(f"Received the following error when posting for region {row.paxminer_schema} for achievement {new_award_name}")
+                    logging.error(e)
+                    # logging.error(f"Slack API gave error code: {e.response.status_code}")
                     continue
 
         new_data["achievement_id"] = idx
@@ -255,7 +257,7 @@ def send_to_slack(
             text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
         )
     except SlackApiError as e:
-        logging.error(f"Error sending message to {paxminer_log_channel}: {e}")
+        logging.error(f"Error sending message to {paxminer_log_channel} for {row.paxminer_schema}: {e}")
 
     logging.info(f"Sent all slack messages to {row.paxminer_schema} for achievement {idx}")
 
