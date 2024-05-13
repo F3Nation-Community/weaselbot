@@ -162,13 +162,13 @@ def send_to_slack(
         .agg(pl.col("id").count())
         .iter_rows()
     ):
-        _d[r.Index].update({r[1]: r[2]})
+        _d[r[0]].update({r[1]: r[2]})
 
     for idx, df in enumerate(dfs, start=1):
         if df.is_empty():
             # no one anywhere got this award. No sense wasting resources on it.
             try:
-                logging.info(f"No data in {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().arr.to_list()[0]} for {schema}")
+                logging.info(f"No data in {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]} for {schema}")
             except IndexError:
                 logging.error(f"{schema} doesn't have achievement {idx} in their awards_list table.")
             continue
@@ -177,7 +177,7 @@ def send_to_slack(
             # there is data but nothing new since the last run. Carry on.
             try:
                 logging.info(
-                    f"{schema} has data but nothing new for {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().arr.to_list()[0]}."
+                    f"{schema} has data but nothing new for {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]}."
                 )
             except IndexError:
                 logging.error(f"{schema} has new data but doesn't track achievement_id {idx}.")
