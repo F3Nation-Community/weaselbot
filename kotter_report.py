@@ -14,52 +14,11 @@ from sqlalchemy.sql import Selectable, and_, case, func, or_, select
 
 from utils import mysql_connection, slack_client
 
-"""
-SELECT DISTINCT 
-U.user_name AS PAX, 
-U.real_name AS Real_Name, 
-U.phone AS Phone, 
-U.email AS Email, 
-latest.AO, 
-latest.Last_Post, 
-total.Total_Posts, 
-p3.Home_AO, 
-p3.Home_AO_Posts
-FROM users U
-INNER JOIN (
-	SELECT t.PAX, t.AO, t.Date as Last_Post
-	FROM attendance_view t
-	INNER JOIN (
-		SELECT PAX, MAX(Date) AS MaxDate
-		FROM attendance_view av
-		WHERE av.DATE > NOW() - INTERVAL 365 DAY
-		GROUP BY PAX) tm ON t.PAX = tm.PAX AND t.Date = tm.MaxDate) AS latest
-ON U.user_name = latest.PAX 
-INNER JOIN (
-	SELECT PAX, COUNT(*) AS Total_Posts
-    FROM attendance_view
-    GROUP BY PAX) as total
-ON latest.PAX = total.PAX
-INNER JOIN (
-	SELECT p2.PAX, p2.Home_AO, p2.Home_AO_Posts
-	FROM (
-		SELECT PAX, Home_AO, Home_AO_Posts, ROW_NUMBER()
-		OVER(PARTITION BY PAX ORDER BY Home_AO_Posts DESC) rowNumber
-		FROM (
-			SELECT PAX, AO as Home_AO, COUNT(PAX) as Home_AO_Posts
-			FROM attendance_view
-			GROUP BY PAX, Home_AO) pp) p2
-	WHERE p2.rowNumber = 1) as p3
-ON p3.PAX = latest.PAX
-WHERE Last_Post < NOW() - INTERVAL 30 DAY
-ORDER BY Home_AO, Home_AO_Posts Desc
-"""
-
-NO_POST_THRESHOLD = 2
-REMINDER_WEEKS = 2
-HOME_AO_CAPTURE = datetime.combine(date.today() + timedelta(weeks=-8), datetime.min.time())
-NO_Q_THRESHOLD_WEEKS = 4
-NO_Q_THRESHOLD_POSTS = 4
+# NO_POST_THRESHOLD = 2
+# REMINDER_WEEKS = 2
+# HOME_AO_CAPTURE = datetime.combine(date.today() + timedelta(weeks=-8), datetime.min.time())
+# NO_Q_THRESHOLD_WEEKS = 4
+# NO_Q_THRESHOLD_POSTS = 4
 
 
 def col_cleaner(s: pd.Series) -> pd.Series:
@@ -88,15 +47,15 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
 
     try:
         siteq = f"@{siteq}" if siteq[0].upper() == "U" else "!channel"
-    except (IndexError, TypeError) as e:
-        logging.error(e)
+    except (IndexError, TypeError):
+        logging.error("No Site Q in the table. Proceeding with @channel")
         siteq = "!channel"
     sMessage = [
         f"Howdy, <{siteq}>! This is your weekly WeaselBot Site Q report. According to my records...",
     ]
 
     if len(df_posts) > 0:
-        sMessage.append("\n\nThe following PAX haven't posted in a bit.")
+        sMessage.append("\n\nThe following PAX haven't posted in a bit. ")
         sMessage.append("Now may be a good time to reach out to them when you get a minute. No OYO! :muscle:")
 
         for row in df_posts.itertuples(index=False):
@@ -117,6 +76,10 @@ def build_kotter_report(df_posts: pd.DataFrame, df_qs: pd.DataFrame, siteq: str)
 def nation_select(metadata: MetaData) -> Selectable:
     """
     SQL abstraction for pulling The Nation data from Beaker's tables.
+
+    Things to check:
+
+    1. WHERE clause -> bd_date > 0? Why not > date PAXMiner was conceived?
 
     :param metadata: collection of all table data
     :type metadata: SQLAlchemy MetaData object
@@ -220,6 +183,8 @@ def nation_df(sql: Selectable, engine: Engine) -> pd.DataFrame:
 def pull_region_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) -> pd.DataFrame:
     """
     Pull the users for the specific region defined in `row`.
+    Changed to match only where home_region from weaselbot matches current region being
+    reviewed. This has the effect of removing DRs from the list.
 
     :param row: key: value pair of data elements from a pandas dataframe row.
     :type row: named tuple
@@ -231,7 +196,17 @@ def pull_region_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) 
     :rtype: pd.DataFrame
     """
     users = Table("users", metadata, autoload_with=engine, schema=row.paxminer_schema)
-    df = pd.read_sql(select(users), engine, dtype=pd.StringDtype(), parse_dates="start_date")
+    cu = metadata.tables["weaselbot.combined_users"]
+    cr = metadata.tables["weaselbot.combined_regions"]
+
+    sql = select(users)
+    sql = sql.select_from(users.join(cu, cu.c.email == users.c.email)
+                          .join(cr, cr.c.region_id == cu.c.home_region_id)
+                         )
+    sql = sql.where(cr.c.schema_name == row.paxminer_schema)
+
+    df = pd.read_sql(sql, engine, dtype=pd.StringDtype())
+    df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce', format='mixed')
     df.app = df.app.astype(pd.Int64Dtype())
     df = df.apply(col_cleaner)
     df.email = df.email.str.lower().replace("none", pd.NA)
@@ -240,7 +215,7 @@ def pull_region_users(row: tuple[Any, ...], engine: Engine, metadata: MetaData) 
     return df
 
 
-def add_home_ao(df: pd.DataFrame) -> pd.DataFrame:
+def add_home_ao(df: pd.DataFrame, row) -> pd.DataFrame:
     """
     Insert the `home_ao` to the data. This is critical to making sure posts land in the
     proper Slack channel.
@@ -251,7 +226,7 @@ def add_home_ao(df: pd.DataFrame) -> pd.DataFrame:
     :rtype: pd.DataFrame
     """
     home_ao_df = (
-        df.loc[df.date > HOME_AO_CAPTURE]
+        df.loc[df.date > datetime.combine(date.today() + timedelta(weeks=-row.HOME_AO_CAPTURE), datetime.min.time())]
         .groupby(["pax_id"])["ao"]
         .value_counts()
         .groupby(level=0)
@@ -299,7 +274,7 @@ def clean_data(
     """
     df.rename({"user_id": "pax_id", "user_name": "pax_name"}, axis=1, inplace=True)
 
-    df = add_home_ao(df)
+    df = add_home_ao(df, row)
 
     df_non_zero = (
         df.groupby(["year_num", "week_num", "pax_id", "home_ao"], as_index=False)
@@ -317,9 +292,9 @@ def clean_data(
         .fillna(pd.NA)
         .sort_values(["pax_id", "date"])
         .assign(
-            post_count_rolling=lambda x: x.post_count.rolling(NO_POST_THRESHOLD, min_periods=1).sum(),
+            post_count_rolling=lambda x: x.post_count.rolling(row.NO_POST_THRESHOLD, min_periods=1).sum(),
             post_count_rolling_stop=lambda x: x.post_count.rolling(
-                NO_POST_THRESHOLD + REMINDER_WEEKS, min_periods=1
+                row.NO_POST_THRESHOLD + row.REMINDER_WEEKS, min_periods=1
             ).sum(),
         )
     )
@@ -344,10 +319,10 @@ def clean_data(
     df9 = pd.merge(df6, df8, how="left")
     df10 = df9[
         (df9["post_count_rolling"] > 0)
-        & (df6["date"] == pull_week)
+        & (df9["date"] == pull_week)
         & (
-            (df9["days_since_last_q"] > (NO_Q_THRESHOLD_WEEKS * 7))
-            | (df9["days_since_last_q"].isna() & (df9["post_count_rolling"] > NO_Q_THRESHOLD_POSTS))
+            (df9["days_since_last_q"] > (row.NO_Q_THRESHOLD_WEEKS * 7))
+            | (df9["days_since_last_q"].isna() & (df9["post_count_rolling"] > row.NO_Q_THRESHOLD_POSTS))
         )
     ]
 
@@ -407,7 +382,7 @@ def send_weaselbot_report(
                 client.chat_postMessage(channel=siteq, text=sMessage, link_names=True)
                 logging.info(f"Sent {siteq} this message:\n\n{sMessage}\n\n")
             except Exception as e:
-                logging.error(f"Error sending message to {siteq} {e}")
+                logging.error(f"Error sending message to {siteq} with {e}")
 
     sMessage = build_kotter_report(df_posts, df_qs, row.default_siteq)
     sMessage += "\n\nNote: If you have listed your site Qs on your aos table, this information will have gone out to them as well."
@@ -416,8 +391,6 @@ def send_weaselbot_report(
             client.chat_postMessage(channel=row.default_siteq, text=sMessage, link_names=True)
             logging.info(f"Sent {row.default_siteq} this message:\n\n{sMessage}\n\n")
     except SlackApiError as e:
-        logging.error(f"hit exception {e}")
-        logging.error(e.response)
         if e.response.get("error") == "not_in_channel":
             try:
                 logging.info("trying to join channel")
@@ -426,23 +399,36 @@ def send_weaselbot_report(
                 logging.info(f"sent this message:\n\n{sMessage}\n\n")
             except Exception as e:
                 logging.error("hit exception joining channel")
+        elif e.response.get("error") == "channel_not_found":
+            logging.error(f"The channel or user {row.default_siteq} doesn't exist for {row.paxminer_schema}.")
+        else:
+            logging.error(f"hit the following exception for {row.paxminer_schema}: {e}")
+
 
 
 def notify_yhc(row: tuple[Any], engine: Engine, metadata: MetaData, client: WebClient) -> None:
+    """
+    Send a message to the paxminer_logs channel notifying everyone that the Kotter Report
+    has been run.
+    """
     ao = metadata.tables[f"{row.paxminer_schema}.aos"]
     with engine.begin() as cnxn:
         paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
     try:
         client.chat_postMessage(channel=paxminer_log_channel, text="Successfully sent kotter reports")
         logging.info(f"Sent {paxminer_log_channel} this message:\n\nSuccessfully sent kotter reports\n\n")
+        logging.info("All done!")
     except SlackApiError as e:
-        logging.error(f"Error sending message to {paxminer_log_channel}: {e}")  # TODO: add self to channel
-    logging.info("All done!")
+        if e.response.get("error") == "not_in_channel":
+            logging.error(f"Weaselbot is not added to the paxminer_logs channel for {row.paxminer_schema}. Their admin needs to do this.")
+        else:
+            logging.error(e)
+        logging.error("Finished with errors.")
 
 
 def main():
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.WARNING, datefmt="%Y-%m-%d %H:%M:%S"
     )
     engine = mysql_connection()
     metadata = MetaData()
@@ -459,8 +445,7 @@ def main():
 
         df_siteq, df_posts, df_qs = clean_data(df, row, engine, metadata)
 
-        token = row.slack_token
-        client = slack_client(token)
+        client = slack_client(row.slack_token)
         send_weaselbot_report(row, client, df_siteq, df_posts, df_qs)
 
         notify_yhc(row, engine, metadata, client)
