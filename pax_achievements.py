@@ -218,7 +218,7 @@ def main():
     ############### END #################
 
     # For beatdowns, we want to exclude QSource and Ruck (blackops too? What is blackops?)
-    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s|ruck")
+    bb_filter = nation_df.backblast.str.lower().str[:100].str.contains(r"q.{0,1}source|q{0,1}[1-9]\.[0-9]\s")
     ao_filter = nation_df.ao.str.contains(r"q.{0,1}source|ruck")
 
     ############ ALL ELSE ###############
