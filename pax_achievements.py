@@ -3,7 +3,7 @@ from datetime import date
 
 import pandas as pd
 import polars as pl
-from sqlalchemy import MetaData, Selectable, Table
+from sqlalchemy import MetaData, Selectable, Table, text
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import NoSuchTableError
@@ -338,12 +338,14 @@ def main():
 
     for row in schemas:
         schema = row[0]
-        try:
-            ao = metadata.tables[f"{schema}.aos"]
-        except KeyError:
-            ao = Table("aos", metadata, autoload_with=engine, schema=schema)
+        ao = Table("aos", metadata, autoload_with=engine, schema=schema)
         with engine.begin() as cnxn:
             paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
+            token = cnxn.execute(select(t.c.slack_token).where(t.c.schema_name == schema)).scalar()
+            channel = cnxn.execute(text(f"SELECT achievement_channel FROM weaselbot.regions WHERE paxminer_schema = '{schema}'")).scalar()
+        if channel is None:
+            logging.error(f"{schema} isn't signed up for Weaselbot achievements.")
+            continue
         try:
             awarded = pl.from_pandas(pd.read_sql(
                 award_view(schema, engine, metadata), engine, parse_dates=["date_awarded", "created", "updated"]
@@ -352,9 +354,9 @@ def main():
         except NoSuchTableError:
             logging.error(f"{schema} isn't signed up for Weaselbot achievements.")
             continue
-        data_to_load = send_to_slack(schema, year, awarded, awards, dfs, paxminer_log_channel)
-        if not data_to_load.empty:
-            load_to_database(row, engine, metadata, data_to_load)
+        data_to_load = send_to_slack(schema, token, channel, year, awarded, awards, dfs, paxminer_log_channel)
+        if not data_to_load.is_empty():
+            load_to_database(schema, engine, metadata, data_to_load)
 
         logging.info(f"Successfully loaded all records and sent all Slack messages for {row.paxminer_schema}.")
 
