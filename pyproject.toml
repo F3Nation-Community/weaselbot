@@ -90,6 +90,7 @@ pre-commit = "^3.6.0"
 ruff = "^0.1.11"
 sqlparse = "^0.4.4"
 pyarrow = "^14.0.2"
+polars = "^0.20.25"
 
 
 [tool.poetry.group.dev.dependencies]
