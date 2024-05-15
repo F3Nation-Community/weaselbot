@@ -297,6 +297,7 @@ def main():
 
     # Need to group home_regions on email, and pick the home region with the greatest frequency.
     home_regions = home_regions.group_by("email").agg(pl.all().sort_by("attendance").last())
+    # home_regions = home_regions.filter(pl.col('attendance') == pl.col('attendance').max().over('email')) # ties are duplicated
     nation_df = nation_df.join(home_regions.drop("attendance"), on="email")
     del home_regions
 
