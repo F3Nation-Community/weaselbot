@@ -204,11 +204,9 @@ def send_to_slack(
                 "time this year he's earned this award. Keep up the good work!",
             ]
             sMessage = "".join(sMessage)
-            logging.info(sMessage)
             try:
                 response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
                 client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
-                logging.info("Successfully added reaction.")
                 logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
             except SlackApiError as e:
                 if e.response.status_code == 429:
@@ -217,7 +215,6 @@ def send_to_slack(
                     time.sleep(delay)
                     response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
                     client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
-                    logging.info("Successfully added reaction.")
                     logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
                 else:
                     logging.error(f"Received the following error when posting for region {schema} for achievement {new_award_name}")

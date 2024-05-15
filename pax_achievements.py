@@ -295,6 +295,8 @@ def main():
         logging.info("Building national beatdown data...")
         nation_df = pl.from_pandas(pd.read_sql(nation_query, cnxn))
 
+    # Need to group home_regions on email, and pick the home region with the greatest frequency.
+    home_regions = home_regions.group_by("email").agg(pl.all().sort_by("attendance").last())
     nation_df = nation_df.join(home_regions.drop("attendance"), on="email")
     del home_regions
 
@@ -336,6 +338,8 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas:
         schema = row[0]
+        if schema != 'f3chicago':
+            continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
         except Exception as e:
