@@ -336,7 +336,11 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas:
         schema = row[0]
-        ao = Table("aos", metadata, autoload_with=engine, schema=schema)
+        try:
+            ao = Table("aos", metadata, autoload_with=engine, schema=schema)
+        except Exception as e:
+            logging.error(f"No AO table in {schema}")
+            continue
 
         with engine.begin() as cnxn:
             paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()

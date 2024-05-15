@@ -76,8 +76,8 @@ def _check_for_new_results(
                     .filter(pl.col("region") == schema)
                     .join(
                         awarded.with_columns(pl.col("date_awarded").dt.month().alias("month"))
-                        .filter((pl.col("achievement_id") == idx) & (pl.col("date_awarded").dt.year() == year))
-                        .select(["month", "pax_id"]), on=["month", "pax_id"], how="anti")
+                        .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & (pl.col("date_awarded").dt.year() == year))
+                        .select(["month", "pax_id"]), on=["month", "pax_id"], how="anti", join_nulls=True)
                         )
         case "week":
             return (
@@ -86,8 +86,8 @@ def _check_for_new_results(
                     .filter(pl.col("region") == schema)
                     .join(
                         awarded.with_columns(pl.col("date_awarded").dt.week().alias("week"))
-                        .filter((pl.col("achievement_id") == idx) & pl.col("date_awarded").dt.year() == year)
-                        .select(["week", "pax_id"]), on=["week", "pax_id"], how="anti")
+                        .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & pl.col("date_awarded").dt.year() == year)
+                        .select(["week", "pax_id"]), on=["week", "pax_id"], how="anti", join_nulls=True)
                         )
         case _:
             return (
@@ -96,8 +96,8 @@ def _check_for_new_results(
                     .filter(pl.col("region") == schema)
                     .join(
                         awarded.with_columns(pl.col("date_awarded").dt.year().alias("year"))
-                        .filter((pl.col("achievement_id") == idx) & pl.col("date_awarded").dt.year() == year)
-                        .select(["year", "pax_id"]), on=["year", "pax_id"], how="anti")
+                        .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & pl.col("date_awarded").dt.year() == year)
+                        .select(["year", "pax_id"]), on=["year", "pax_id"], how="anti", join_nulls=True)
                         )
 
 
@@ -173,7 +173,7 @@ def send_to_slack(
                 logging.error(f"{schema} doesn't have achievement {idx} in their awards_list table.")
             continue
         new_data = _check_for_new_results(schema, year, idx, df, awarded)
-        if new_data.is_empty:
+        if new_data.is_empty():
             # there is data but nothing new since the last run. Carry on.
             try:
                 logging.info(
@@ -184,7 +184,7 @@ def send_to_slack(
             continue
 
         # we got this far so there are achievements to award.
-        if idx not in awards.select(pl.col("id")).to_series().arr.tolist():
+        if idx not in awards.select(pl.col("id")).to_series().to_list():
             logging.error(f"{schema} doesn't track achievement_id {idx}.")
             continue
 
@@ -198,9 +198,9 @@ def send_to_slack(
             ending = ordinal_suffix(total_idx_achievements)
 
             sMessage = [
-                f"Congrats to our man <@{record.pax_id}>! ",
+                f"Congrats to our man <@{record[3]}>! ",
                 f"He just unlocked the achievement *{new_award_name}* for {new_award_verb}. ",
-                f"This is achievement #{total_achievements} for <@{record.pax_id}> and the {total_idx_achievements}{ending} ",
+                f"This is achievement #{total_achievements} for <@{record[3]}> and the {total_idx_achievements}{ending} ",
                 "time this year he's earned this award. Keep up the good work!",
             ]
             sMessage = "".join(sMessage)
@@ -209,7 +209,7 @@ def send_to_slack(
                 response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
                 client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
                 logging.info("Successfully added reaction.")
-                logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
+                logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
             except SlackApiError as e:
                 if e.response.status_code == 429:
                     delay = int(e.response.headers["Retry-After"])
@@ -218,7 +218,7 @@ def send_to_slack(
                     response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
                     client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
                     logging.info("Successfully added reaction.")
-                    logging.info(f"Successfully sent slack message for {record.pax_id} and achievement {idx}")
+                    logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
                 else:
                     logging.error(f"Received the following error when posting for region {schema} for achievement {new_award_name}")
                     logging.error(e)
