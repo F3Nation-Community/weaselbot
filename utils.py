@@ -45,9 +45,7 @@ def slack_client(token: str) -> WebClient:
     return WebClient(token=token, ssl=ssl_context)
 
 
-def _check_for_new_results(
-    schema: str, year: int, idx: int, df: pl.DataFrame, awarded: pl.DataFrame
-) -> pl.DataFrame:
+def _check_for_new_results(schema: str, year: int, idx: int, df: pl.DataFrame, awarded: pl.DataFrame) -> pl.DataFrame:
     """
     Check for new earned achievements in the data. By looking at the current
     achievement number and comparing it against what we've already seen, determine
@@ -70,35 +68,28 @@ def _check_for_new_results(
 
     match df.columns[0]:
         case "month":
-            return (
-                    df.with_columns(pl.col("slack_user_id").alias("pax_id"))
-                    .drop("slack_user_id")
-                    .filter(pl.col("region") == schema)
-                    .join(
-                        awarded.with_columns(pl.col("date_awarded").dt.month().alias("month"))
-                        .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & (pl.col("date_awarded").dt.year() == year))
-                        .select(["month", "pax_id"]), on=["month", "pax_id"], how="anti", join_nulls=True)
-                        )
+            with_cols = pl.col("date_awarded").dt.month().alias("month")
+            select_col = "month"
         case "week":
-            return (
-                    df.with_columns(pl.col("slack_user_id").alias("pax_id"))
-                    .drop("slack_user_id")
-                    .filter(pl.col("region") == schema)
-                    .join(
-                        awarded.with_columns(pl.col("date_awarded").dt.week().alias("week"))
-                        .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & pl.col("date_awarded").dt.year() == year)
-                        .select(["week", "pax_id"]), on=["week", "pax_id"], how="anti", join_nulls=True)
-                        )
+            with_cols = pl.col("date_awarded").dt.week().alias("week")
+            select_col = "week"
         case _:
-            return (
-                df.with_columns(pl.col("slack_user_id").alias("pax_id"))
-                    .drop("slack_user_id")
-                    .filter(pl.col("region") == schema)
-                    .join(
-                        awarded.with_columns(pl.col("date_awarded").dt.year().alias("year"))
-                        .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & pl.col("date_awarded").dt.year() == year)
-                        .select(["year", "pax_id"]), on=["year", "pax_id"], how="anti", join_nulls=True)
-                        )
+            with_cols = pl.col("date_awarded").dt.year().alias("year")
+            select_col = "year"
+
+    return (
+        df.with_columns(pl.col("slack_user_id").alias("pax_id"))
+        .drop("slack_user_id")
+        .filter(pl.col("region") == schema)
+        .join(
+            awarded.with_columns(with_cols)
+            .filter((pl.col("achievement_id").cast(pl.Int64()) == idx) & (pl.col("date_awarded").dt.year() == year))
+            .select([select_col, "pax_id"]),
+            on=[select_col, "pax_id"],
+            how="anti",
+            join_nulls=True,
+        )
+    )
 
 
 def ordinal_suffix(n: int) -> str:
@@ -168,7 +159,9 @@ def send_to_slack(
         if df.is_empty():
             # no one anywhere got this award. No sense wasting resources on it.
             try:
-                logging.info(f"No data in {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]} for {schema}")
+                logging.info(
+                    f"No data in {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]} for {schema}"
+                )
             except IndexError:
                 logging.error(f"{schema} doesn't have achievement {idx} in their awards_list table.")
             continue
@@ -199,14 +192,15 @@ def send_to_slack(
 
             sMessage = [
                 f"Congrats to our man <@{record[3]}>! ",
-                f"He just unlocked the achievement *{new_award_name}* for {new_award_verb}. ",
+                f"He just unlocked the achievement *{new_award_name}* for {new_award_verb} ",
+                f"which he earned on {record[2]}. "
                 f"This is achievement #{total_achievements} for <@{record[3]}> and the {total_idx_achievements}{ending} ",
                 "time this year he's earned this award. Keep up the good work!",
             ]
             sMessage = "".join(sMessage)
             try:
-                response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
-                client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
+                # response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
+                # client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
                 logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
             except SlackApiError as e:
                 if e.response.status_code == 429:
@@ -217,20 +211,28 @@ def send_to_slack(
                     client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
                     logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
                 else:
-                    logging.error(f"Received the following error when posting for region {schema} for achievement {new_award_name}")
+                    logging.error(
+                        f"Received the following error when posting for region {schema} for achievement {new_award_name}"
+                    )
                     logging.error(e)
                     continue
 
-        new_data = new_data.with_columns(pl.lit(idx).alias("achievement_id"))
-        data_to_upload = pl.concat([data_to_upload, new_data.select("achievement_id", "pax_id", "date_awarded")])
-
-    try:
-        client.chat_postMessage(
-            channel=paxminer_log_channel,
-            text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
+        data_to_upload = pl.concat(
+            [
+                data_to_upload,
+                new_data.with_columns(pl.lit(idx).alias("achievement_id")).select(
+                    "achievement_id", "pax_id", "date_awarded"
+                ),
+            ]
         )
-    except SlackApiError as e:
-        logging.error(f"Error sending message to {paxminer_log_channel} for {schema}: {e}")
+
+    # try:
+    #     client.chat_postMessage(
+    #         channel=paxminer_log_channel,
+    #         text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
+    #     )
+    # except SlackApiError as e:
+    #     logging.error(f"Error sending message to {paxminer_log_channel} for {schema}: {e}")
 
     logging.info(f"Sent all slack messages to {schema} for achievement {idx}")
 

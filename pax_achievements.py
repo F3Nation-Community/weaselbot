@@ -115,6 +115,7 @@ def nation_sql(schemas, engine, metadata: MetaData) -> Selectable:
 
             sql = sql.where(
                 func.year(b.c.bd_date) == func.year(func.curdate()),
+                b.c.bd_date <= date.today(),
                 u.c.email != "none",
                 u.c.user_name != "PAXminer",
                 b.c.q_user_id != None,
@@ -339,7 +340,7 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas:
         schema = row[0]
-        if schema != 'f3chicago':
+        if schema != 'f3huntsville':
             continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
