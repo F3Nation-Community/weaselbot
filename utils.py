@@ -199,8 +199,8 @@ def send_to_slack(
             ]
             sMessage = "".join(sMessage)
             try:
-                # response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
-                # client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
+                response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
+                client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
                 logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
             except SlackApiError as e:
                 if e.response.status_code == 429:
@@ -226,13 +226,13 @@ def send_to_slack(
             ]
         )
 
-    # try:
-    #     client.chat_postMessage(
-    #         channel=paxminer_log_channel,
-    #         text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
-    #     )
-    # except SlackApiError as e:
-    #     logging.error(f"Error sending message to {paxminer_log_channel} for {schema}: {e}")
+    try:
+        client.chat_postMessage(
+            channel=paxminer_log_channel,
+            text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
+        )
+    except SlackApiError as e:
+        logging.error(f"Error sending message to {paxminer_log_channel} for {schema}: {e}")
 
     logging.info(f"Sent all slack messages to {schema} for achievement {idx}")
 

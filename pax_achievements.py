@@ -340,8 +340,6 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas:
         schema = row[0]
-        if schema != 'f3huntsville':
-            continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
         except Exception as e:
