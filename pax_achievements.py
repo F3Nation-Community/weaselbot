@@ -43,6 +43,8 @@ def build_home_regions(schemas, metadata, engine):
         # null so full year look back is used. Region 1 overrides Region 2 until
         # total beatdowns in Region 2 > total beatdowns in Region 1 for the same year.
         schema = row[0]
+        if schema in ("f3devcommunity", 'f3development'):
+            continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
             a = Table("bd_attendance", metadata, autoload_with=engine, schema=schema)
@@ -259,7 +261,7 @@ def hdtf(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFra
         .agg(pl.col("ao").count(), pl.col("date").max())
         .filter(pl.col("ao") >= 50)
         .with_columns(pl.col("date").alias("date_awarded"))
-        .drop(["ao", "date"])
+        .drop(["ao", "date", 'ao_id'])
     )
     return x
 
