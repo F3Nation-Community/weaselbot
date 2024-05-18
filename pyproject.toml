@@ -58,7 +58,6 @@ mysql-connector-python = "^8.2.0"
 nest-asyncio = "^1.5.8"
 numpy = "^1.26.3"
 packaging = "^23.2"
-pandas = "^2.1.4"
 parso = "^0.8.3"
 pathspec = "^0.12.1"
 pexpect = "^4.9.0"
@@ -91,11 +90,11 @@ ruff = "^0.1.11"
 sqlparse = "^0.4.4"
 pyarrow = "^14.0.2"
 polars = "^0.20.25"
+connectorx = "^0.3.3"
 
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.8.0"
-pandas-stubs = "^2.1.4.231227"
 pytest = "^7.4.4"
 pytest-mock = "^3.12.0"
 
