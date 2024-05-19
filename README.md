@@ -8,11 +8,11 @@ A supplemental tool for [F3 regions](https://f3nation.com/) to get more out of t
 
 - [Achievements](#achievements): Incorporate automated "achievements" that are awarded based on F3 activity
 
-<img src="https://raw.githubusercontent.com/evanpetzoldt/weaselbot/master/readme_media/achievement-screenshot.png" width="300" />
+<img src="readme_media/achievement-screenshot.png" width="300" />
 
 - [Kotter Reports](#kotter-reports): Detect when guys are starting to fall off the F3 wagon and send a notice to your site Qs
 
-<img src="https://raw.githubusercontent.com/evanpetzoldt/weaselbot/master/readme_media/kotter-report.png" width="300" />
+<img src="readme_media/kotter-report.png" width="300" />
 
 - [Coming Soon] archive your pictures uploaded to slack onto Google Drive and / or Google Photos
 
@@ -56,7 +56,7 @@ settings:
 ```
 4. If desired, you can use my DALL-E generated icon for its avatar (you can set this at the bottom of `Basic Information`):
 
-<img src="https://raw.githubusercontent.com/evanpetzoldt/weaselbot/master/readme_media/weaselbot_avatar.png" width="200" />
+<img src="readme_media/weaselbot_avatar.png" width="200" />
 
 
 5. Install the app to your region's workspace. Then, navigate to `Oauth & Permissions` on your bot page, and copy / save the `Bot User Auth Token`
