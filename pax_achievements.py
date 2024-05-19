@@ -1,7 +1,8 @@
+#!/usr/bin/env /Users/jamessheldon/Library/Caches/pypoetry/virtualenvs/weaselbot-93dzw48B-py3.12/bin/python
+
 import logging
 from datetime import date
 
-import pandas as pd
 import polars as pl
 from sqlalchemy import MetaData, Selectable, Table, text
 from sqlalchemy.dialects.mysql import insert
@@ -34,7 +35,7 @@ def home_region_sub_query(u, a, b, ao, date_range):
 
 def build_home_regions(schemas, metadata, engine):
     queries = []
-    for row in schemas:
+    for row in schemas.iter_rows():
         # some men don't post in the immediate prior 30 days. To account for this,
         # a full year look back is performed. If there are 0 posts in the immediately prior
         # 30 days, the lookback is used. This is a nieve approach and there are
@@ -84,8 +85,10 @@ def build_home_regions(schemas, metadata, engine):
 
 def nation_sql(schemas, engine, metadata: MetaData) -> Selectable:
     queries = []
-    for row in schemas:
+    for row in schemas.iter_rows():
         schema = row[0]
+        if schema in ("f3devcommunity", 'f3development'):
+            continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
             a = Table("bd_attendance", metadata, autoload_with=engine, schema=schema)
@@ -284,19 +287,18 @@ def main():
     year = date.today().year
     engine = mysql_connection()
     metadata = MetaData()
+    uri = engine.url.render_as_string(hide_password=False).replace("+mysqlconnector", "")
     t = Table("regions", metadata, autoload_with=engine, schema="paxminer")
-    sql = select(t.c.schema_name).where(t.c.schema_name.like("f3%"))
-    with engine.begin() as cnxn:
-        schemas = cnxn.execute(sql).fetchall()
+    sql = str(select(t.c.schema_name).where(t.c.schema_name.like("f3%")).compile(engine, compile_kwargs={"literal_binds": True}))
+    schemas = pl.read_database_uri(query=sql, uri=uri)
 
-    home_regions_sql = build_home_regions(schemas, metadata, engine)
-    nation_query = nation_sql(schemas, engine, metadata)
+    home_regions_sql = str(build_home_regions(schemas, metadata, engine).compile(engine, compile_kwargs={"literal_binds": True}))
+    nation_query = str(nation_sql(schemas, engine, metadata).compile(engine, compile_kwargs={"literal_binds": True}))
 
-    with engine.begin() as cnxn:
-        logging.info("Building home regions...")
-        home_regions = pl.from_pandas(pd.read_sql(home_regions_sql, cnxn))
-        logging.info("Building national beatdown data...")
-        nation_df = pl.from_pandas(pd.read_sql(nation_query, cnxn))
+    logging.info("Building home regions...")
+    home_regions = pl.read_database_uri(query=home_regions_sql, uri=uri)
+    logging.info("Building national beatdown data...")
+    nation_df = pl.read_database_uri(query=nation_query, uri=uri)
 
     # Need to group home_regions on email, and pick the home region with the greatest frequency.
     home_regions = home_regions.group_by("email").agg(pl.all().sort_by("attendance").last())
@@ -342,9 +344,11 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas:
         schema = row[0]
+        if schema in ("f3devcommunity", 'f3development'):
+            continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
-        except Exception as e:
+        except Exception:
             logging.error(f"No AO table in {schema}")
             continue
 
@@ -367,9 +371,12 @@ def main():
                 .where(func.year(aa.c.date_awarded) == func.year(func.curdate()))
             )
 
-            with engine.begin() as cnxn:
-                awarded = pl.from_pandas(pd.read_sql(sql, cnxn, parse_dates=["date_awarded", "created", "updated"]))
-                awards = pl.from_pandas(pd.read_sql(select(al), cnxn))
+            awarded = pl.read_database_uri(str(sql.compile(engine, compile_kwargs={"literal_binds": True})), uri=uri)
+            awards = pl.read_database_uri(f"SELECT * FROM {schema}.achievements_list", uri=uri)
+
+            # with engine.begin() as cnxn:
+            #     awarded = pl.from_pandas(pd.read_sql(sql, cnxn, parse_dates=["date_awarded", "created", "updated"]))
+            #     awards = pl.from_pandas(pd.read_sql(select(al), cnxn))
         except NoSuchTableError:
             logging.error(f"{schema} isn't signed up for Weaselbot achievements.")
             continue
