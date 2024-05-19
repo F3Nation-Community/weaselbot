@@ -274,8 +274,6 @@ def main():
 
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema != "f3chicago":
-            continue
         logging.info(f"running {schema}...")
         try:
             query = (
