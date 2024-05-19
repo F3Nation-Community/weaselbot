@@ -2,11 +2,12 @@
 
 import logging
 from datetime import date, datetime, timedelta
+from typing import Tuple
 
 import polars as pl
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Subquery, Table
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import Selectable, and_, case, func, literal_column, or_, select, union_all
 
@@ -19,14 +20,11 @@ from utils import mysql_connection, slack_client
 # NO_Q_THRESHOLD_POSTS = 4
 
 
-def home_region_sub_query(u, a, b, ao, date_range):
+def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:
     """
-    Abstract the subquery needed for length of time to
-    look back for considering the home region. This is
-    needed because there are many scenarios where a man
-    could lapse in attending F3. Many different checks
-    should be considered before defaulting to the maximium
-    date range
+    Abstract the subquery needed for length of time to look back for considering the home region. This is
+    needed because there are many scenarios where a man could lapse in attending F3. Many different checks
+    should be considered before defaulting to the maximium date range.
     """
     subquery = select(u.c.email, func.count(a.c.user_id).label("attendance"))
     subquery = subquery.select_from(
@@ -39,16 +37,18 @@ def home_region_sub_query(u, a, b, ao, date_range):
     return subquery
 
 
-def build_home_regions(schemas, metadata, engine):
+def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine) -> Selectable[Tuple[str, str, str]]:
+    """
+    Construct on-the-fly home regions. The current process is a UNION ALL over all regions together. By
+    considering the email address, a man that posts in many different regions will have many different
+    Slack IDs. However, presuming this man posts primarily in his home region, the number of
+    instances of posts in the home region will be greater than that in the DR region. There are edge
+    cases with no good solution. For instance, if a man moves, posts a few times and then stops. He'll
+    still reflect his home region being his former home region until the end of the year.
+    There's no perfect mechanism to account for this and some mis-assignments will occur.
+    """
     queries = []
     for row in schemas.iter_rows():
-        # some men don't post in the immediate prior 30 days. To account for this,
-        # a full year look back is performed. If there are 0 posts in the immediately prior
-        # 30 days, the lookback is used. This is a nieve approach and there are
-        # edge cases that need to be accounted for.
-        # PAX posts a lot in Region 1, moves to Region 2. After 30 days, region 1 stats become
-        # null so full year look back is used. Region 1 overrides Region 2 until
-        # total beatdowns in Region 2 > total beatdowns in Region 1 for the same year.
         schema = row[0]
         if schema in ("f3devcommunity", "f3development"):
             continue
@@ -90,7 +90,9 @@ def build_home_regions(schemas, metadata, engine):
     return union_all(*queries)
 
 
-def nation_sql(schemas, engine, metadata: MetaData) -> Selectable:
+def nation_sql(
+    schemas: pl.DataFrame, engine: Engine, metadata: MetaData
+) -> Selectable[Tuple[str, str, str, str, str, str]]:
     queries = []
     for row in schemas.iter_rows():
         schema = row[0]

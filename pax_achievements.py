@@ -2,9 +2,10 @@
 
 import logging
 from datetime import date
+from typing import Tuple
 
 import polars as pl
-from sqlalchemy import MetaData, Selectable, Table, text
+from sqlalchemy import MetaData, Selectable, Subquery, Table, text
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import NoSuchTableError
@@ -13,14 +14,11 @@ from sqlalchemy.sql import and_, case, func, literal_column, or_, select, union_
 from utils import mysql_connection, send_to_slack
 
 
-def home_region_sub_query(u, a, b, ao, date_range):
+def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:
     """
-    Abstract the subquery needed for length of time to
-    look back for considering the home region. This is
-    needed because there are many scenarios where a man
-    could lapse in attending F3. Many different checks
-    should be considered before defaulting to the maximium
-    date range
+    Abstract the subquery needed for length of time to look back for considering the home region. This is
+    needed because there are many scenarios where a man could lapse in attending F3. Many different checks
+    should be considered before defaulting to the maximium date range
     """
     subquery = select(u.c.email, func.count(a.c.user_id).label("attendance"))
     subquery = subquery.select_from(
@@ -33,18 +31,20 @@ def home_region_sub_query(u, a, b, ao, date_range):
     return subquery
 
 
-def build_home_regions(schemas, metadata, engine):
+def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine) -> Selectable[Tuple[str, str, str]]:
+    """
+    Construct on-the-fly home regions. The current process is a UNION ALL over all regions together. By
+    considering the email address, a man that posts in many different regions will have many different
+    Slack IDs. However, presuming this man posts primarily in his home region, the number of
+    instances of posts in the home region will be greater than that in the DR region. There are edge
+    cases with no good solution. For instance, if a man moves, posts a few times and then stops. He'll
+    still reflect his home region being his former home region until the end of the year.
+    There's no perfect mechanism to account for this and some mis-assignments will occur.
+    """
     queries = []
     for row in schemas.iter_rows():
-        # some men don't post in the immediate prior 30 days. To account for this,
-        # a full year look back is performed. If there are 0 posts in the immediately prior
-        # 30 days, the lookback is used. This is a nieve approach and there are
-        # edge cases that need to be accounted for.
-        # PAX posts a lot in Region 1, moves to Region 2. After 30 days, region 1 stats become
-        # null so full year look back is used. Region 1 overrides Region 2 until
-        # total beatdowns in Region 2 > total beatdowns in Region 1 for the same year.
         schema = row[0]
-        if schema in ("f3devcommunity", 'f3development'):
+        if schema in ("f3devcommunity", "f3development"):
             continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
@@ -83,11 +83,16 @@ def build_home_regions(schemas, metadata, engine):
     return union_all(*queries)
 
 
-def nation_sql(schemas, engine, metadata: MetaData) -> Selectable:
+def nation_sql(
+    schemas: pl.DataFrame, engine: Engine, metadata: MetaData
+) -> Selectable[Tuple[str, str, str, str, str, str, int, str]]:
+    """
+    The main data set. This is what is used to build all achievement information.
+    """
     queries = []
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", 'f3development'):
+        if schema in ("f3devcommunity", "f3development"):
             continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
@@ -133,6 +138,7 @@ def nation_sql(schemas, engine, metadata: MetaData) -> Selectable:
 
 
 def the_priest(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Post for 25 Qsource lessons"""
     grouping = ["year", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -147,6 +153,7 @@ def the_priest(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.D
 
 
 def the_monk(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Post at 4 QSources in a month"""
     grouping = ["month", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -161,6 +168,7 @@ def the_monk(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 
 def leader_of_men(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Q at 4 beatdowns in a month"""
     grouping = ["month", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -175,6 +183,7 @@ def leader_of_men(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> p
 
 
 def the_boss(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Q at 6 beatdowns in a month"""
     grouping = ["month", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -189,6 +198,7 @@ def the_boss(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 
 def hammer_not_nail(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Q at 6 beatdowns in a week"""
     grouping = ["week", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.week().alias("week"))
@@ -203,6 +213,7 @@ def hammer_not_nail(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) ->
 
 
 def cadre(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Q at 7 different AOs in a month"""
     grouping = ["month", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -217,6 +228,7 @@ def cadre(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
 
 
 def el_presidente(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Q at 20 beatdowns in a year"""
     grouping = ["year", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -231,6 +243,12 @@ def el_presidente(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> p
 
 
 def posts(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Abstraction of 5 different achievements:
+    El Quatro: Post at 25 beatdowns in a year
+    Golden Boy: Post at 50 beatdowns in a year
+    Centurion: Post at 100 beatdowns in a year
+    Karate Kid: Post at 150 beatdowns in a year
+    Crazy Person: Post at 200 beatdowns in a year"""
     grouping = ["year", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -242,6 +260,7 @@ def posts(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
 
 
 def six_pack(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Post at 6 beatdowns in a week"""
     grouping = ["week", "slack_user_id", "region"]
     x = (
         df.with_columns(pl.col("date").dt.week().alias("week"))
@@ -256,6 +275,7 @@ def six_pack(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 
 def hdtf(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
+    """Post 50 times at an AO"""
     grouping = ["year", "slack_user_id", "region", "ao_id"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -264,18 +284,18 @@ def hdtf(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFra
         .agg(pl.col("ao").count(), pl.col("date").max())
         .filter(pl.col("ao") >= 50)
         .with_columns(pl.col("date").alias("date_awarded"))
-        .drop(["ao", "date", 'ao_id'])
+        .drop(["ao", "date", "ao_id"])
     )
     return x
 
 
 def load_to_database(schema: str, engine: Engine, metadata: MetaData, data_to_load: pl.DataFrame) -> None:
-    """after successfully sending Slack notifications, push the data to the `achievements_awarded` table.
+    """After successfully sending Slack notifications, push the data to the `achievements_awarded` table.
     The data frame data_to_load has already been filtered to include only new achievements."""
     try:
-        aa = metadata.tables[f"{schema}.achievements_awarded"]
-    except KeyError:
         aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=schema)
+    except NoSuchTableError:
+        aa = Table("achievement_awarded", metadata, autoload_with=engine, schema=schema)
 
     load_records = data_to_load.to_dicts()
     sql = insert(aa).values(load_records)
@@ -289,10 +309,16 @@ def main():
     metadata = MetaData()
     uri = engine.url.render_as_string(hide_password=False).replace("+mysqlconnector", "")
     t = Table("regions", metadata, autoload_with=engine, schema="paxminer")
-    sql = str(select(t.c.schema_name).where(t.c.schema_name.like("f3%")).compile(engine, compile_kwargs={"literal_binds": True}))
+    sql = str(
+        select(t.c.schema_name)
+        .where(t.c.schema_name.like("f3%"))
+        .compile(engine, compile_kwargs={"literal_binds": True})
+    )
     schemas = pl.read_database_uri(query=sql, uri=uri)
 
-    home_regions_sql = str(build_home_regions(schemas, metadata, engine).compile(engine, compile_kwargs={"literal_binds": True}))
+    home_regions_sql = str(
+        build_home_regions(schemas, metadata, engine).compile(engine, compile_kwargs={"literal_binds": True})
+    )
     nation_query = str(nation_sql(schemas, engine, metadata).compile(engine, compile_kwargs={"literal_binds": True}))
 
     logging.info("Building home regions...")
@@ -300,9 +326,7 @@ def main():
     logging.info("Building national beatdown data...")
     nation_df = pl.read_database_uri(query=nation_query, uri=uri)
 
-    # Need to group home_regions on email, and pick the home region with the greatest frequency.
     home_regions = home_regions.group_by("email").agg(pl.all().sort_by("attendance").last())
-    # home_regions = home_regions.filter(pl.col('attendance') == pl.col('attendance').max().over('email')) # ties are duplicated
     nation_df = nation_df.join(home_regions.drop("attendance"), on="email")
     del home_regions
 
@@ -344,7 +368,7 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas:
         schema = row[0]
-        if schema in ("f3devcommunity", 'f3development'):
+        if schema in ("f3devcommunity", "f3development"):
             continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
@@ -354,7 +378,9 @@ def main():
 
         with engine.begin() as cnxn:
             paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
-            token = cnxn.execute(text(f"SELECT slack_token FROM weaselbot.regions WHERE paxminer_schema = '{schema}'")).scalar()
+            token = cnxn.execute(
+                text(f"SELECT slack_token FROM weaselbot.regions WHERE paxminer_schema = '{schema}'")
+            ).scalar()
             channel = cnxn.execute(
                 text(f"SELECT achievement_channel FROM weaselbot.regions WHERE paxminer_schema = '{schema}'")
             ).scalar()
@@ -363,7 +389,13 @@ def main():
             continue
         try:
             al = Table("achievements_list", metadata, autoload_with=engine, schema=schema)
+        except NoSuchTableError:
+            logging.error(f"{schema} isn't signed up for Weaselbot achievements.")
+            continue
+        try:
             aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=schema)
+        except NoSuchTableError:
+            aa = Table("achievement_awarded", metadata, autoload_with=engine, schema=schema)
 
             sql = (
                 select(aa, al.c.code)
@@ -377,9 +409,7 @@ def main():
             # with engine.begin() as cnxn:
             #     awarded = pl.from_pandas(pd.read_sql(sql, cnxn, parse_dates=["date_awarded", "created", "updated"]))
             #     awards = pl.from_pandas(pd.read_sql(select(al), cnxn))
-        except NoSuchTableError:
-            logging.error(f"{schema} isn't signed up for Weaselbot achievements.")
-            continue
+
         data_to_load = send_to_slack(schema, token, channel, year, awarded, awards, dfs, paxminer_log_channel)
         if not data_to_load.is_empty():
             load_to_database(schema, engine, metadata, data_to_load)
