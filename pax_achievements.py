@@ -324,7 +324,9 @@ def main():
     logging.info("Building home regions...")
     home_regions = pl.read_database_uri(query=home_regions_sql, uri=uri)
     logging.info("Building national beatdown data...")
-    nation_df = pl.read_database_uri(query=nation_query, uri=uri)
+    nation_df = pl.read_database_uri(query=nation_query, uri=uri).with_columns(
+        pl.col("backblast").cast(pl.String()), pl.col("ao").cast(pl.String())
+    )
 
     home_regions = home_regions.group_by("email").agg(pl.all().sort_by("attendance").last())
     nation_df = nation_df.join(home_regions.drop("attendance"), on="email")
@@ -366,7 +368,7 @@ def main():
     dfs.append(hdtf(nation_df, bb_filter, ao_filter))
 
     logging.info("Parsing region info and sending to Slack...")
-    for row in schemas:
+    for row in schemas.iter_rows():
         schema = row[0]
         if schema in ("f3devcommunity", "f3development"):
             continue
@@ -397,18 +399,18 @@ def main():
         except NoSuchTableError:
             aa = Table("achievement_awarded", metadata, autoload_with=engine, schema=schema)
 
-            sql = (
-                select(aa, al.c.code)
-                .select_from(aa.join(al, aa.c.achievement_id == al.c.id))
-                .where(func.year(aa.c.date_awarded) == func.year(func.curdate()))
-            )
+        sql = (
+            select(aa, al.c.code)
+            .select_from(aa.join(al, aa.c.achievement_id == al.c.id))
+            .where(func.year(aa.c.date_awarded) == func.year(func.curdate()))
+        )
 
-            awarded = pl.read_database_uri(str(sql.compile(engine, compile_kwargs={"literal_binds": True})), uri=uri)
-            awards = pl.read_database_uri(f"SELECT * FROM {schema}.achievements_list", uri=uri)
+        awarded = pl.read_database_uri(str(sql.compile(engine, compile_kwargs={"literal_binds": True})), uri=uri)
+        awards = pl.read_database_uri(f"SELECT * FROM {schema}.achievements_list", uri=uri)
 
-            # with engine.begin() as cnxn:
-            #     awarded = pl.from_pandas(pd.read_sql(sql, cnxn, parse_dates=["date_awarded", "created", "updated"]))
-            #     awards = pl.from_pandas(pd.read_sql(select(al), cnxn))
+        # with engine.begin() as cnxn:
+        #     awarded = pl.from_pandas(pd.read_sql(sql, cnxn, parse_dates=["date_awarded", "created", "updated"]))
+        #     awards = pl.from_pandas(pd.read_sql(select(al), cnxn))
 
         data_to_load = send_to_slack(schema, token, channel, year, awarded, awards, dfs, paxminer_log_channel)
         if not data_to_load.is_empty():

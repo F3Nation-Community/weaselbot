@@ -188,20 +188,27 @@ def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl
     return "".join(sMessage)
 
 
-def send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq) -> None:
-    # Loop through site-qs that have PAX on the list and send the weaselbot report
-    # If df_siteq is empty, this block doesn't run.
+def send_weaselbot_report(
+    schema: str,
+    client: WebClient,
+    siteq_df: pl.DataFrame,
+    df_mia: pl.DataFrame,
+    df_lowq: pl.DataFrame,
+    df_noq: pl.DataFrame,
+    default_siteq: str,
+) -> None:
+    """
+    Loop through site-qs that have PAX on the list and send the weaselbot report.
+    Then send the overall message.
+    """
     for row in siteq_df.iter_rows():
         siteq = row[-1]
         filter = pl.col("site_q_user_id") == siteq
         mia = df_mia.filter(filter)
         lowq = df_lowq.filter(filter)
         noq = df_noq.filter(filter)
-
-        # Build message
         sMessage = build_kotter_report(mia, lowq, noq, siteq)
 
-        # Send message
         if sum((mia.height, lowq.height, noq.height)) > 0:
             try:
                 client.chat_postMessage(channel=siteq, text=sMessage, link_names=True)
@@ -235,7 +242,7 @@ def slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient
     Send a message to the paxminer_logs channel notifying everyone that the Kotter Report
     has been run.
     """
-    ao = metadata.tables[f"{schema}.aos"]
+    ao = Table("aos", metadata, autoload_with=engine, schema=schema)
     with engine.begin() as cnxn:
         paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
     try:
@@ -254,7 +261,7 @@ def slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient
 
 def main():
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.WARNING, datefmt="%Y-%m-%d %H:%M:%S"
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
     )
     engine = mysql_connection()
     metadata = MetaData()
@@ -266,8 +273,9 @@ def main():
         build_home_regions(schemas, metadata, engine).compile(engine, compile_kwargs={"literal_binds": True})
     )
     nation_query = str(nation_sql(schemas, engine, metadata).compile(engine, compile_kwargs={"literal_binds": True}))
-
+    logging.info("Building home regions dataframe...")
     home_regions = pl.read_database_uri(home_regions_sql, uri=uri)
+    logging.info("Building national dataframe...")
     nation_df = pl.read_database_uri(nation_query, uri=uri)
 
     home_regions = home_regions.group_by("email").agg(pl.all().sort_by("attendance").last())
@@ -286,7 +294,7 @@ def main():
             default_siteq, slack_token = pl.read_database_uri(query=query, uri=uri).row(0)
         except Exception as e:
             # if the site_q_user_id column isn't in their ao table, they're not set up for Kotter reports. We can stop here.
-            print(e)
+            logging.error(f"{schema}: {e}")
             continue
         df = nation_df.filter(pl.col("region") == schema)
 
