@@ -13,10 +13,6 @@ from sqlalchemy.sql import Selectable, and_, case, func, literal_column, or_, se
 
 from utils import mysql_connection, slack_client
 
-# NO_POST_THRESHOLD = 2
-# REMINDER_WEEKS = 2
-# HOME_AO_CAPTURE = datetime.combine(date.today() + timedelta(weeks=-8), datetime.min.time()) # depreciated
-# NO_Q_THRESHOLD_WEEKS = 4
 # NO_Q_THRESHOLD_POSTS = 4
 
 
@@ -290,8 +286,15 @@ def main():
                 f"SELECT channel_id AS home_ao, ao, site_q_user_id FROM {schema}.aos WHERE site_q_user_id IS NOT NULL"
             )
             siteq_df = pl.read_database_uri(query=query, uri=uri)
-            query = f"SELECT default_siteq, slack_token FROM weaselbot.regions WHERE paxminer_schema = '{schema}'"
-            default_siteq, slack_token = pl.read_database_uri(query=query, uri=uri).row(0)
+            query = f"SELECT default_siteq, slack_token, NO_POST_THRESHOLD, NO_Q_THRESHOLD_WEEKS, REMINDER_WEEKS FROM, NO_Q_THRESHOLD_POSTS weaselbot.regions WHERE paxminer_schema = '{schema}'"
+            (
+                default_siteq,
+                slack_token,
+                NO_POST_THRESHOLD,
+                NO_Q_THRESHOLD,
+                REMINDER_WEEKS,
+                NO_Q_THRESHOLD_POSTS,
+            ) = pl.read_database_uri(query=query, uri=uri).row(0)
         except Exception as e:
             # if the site_q_user_id column isn't in their ao table, they're not set up for Kotter reports. We can stop here.
             logging.error(f"{schema}: {e}")
@@ -299,7 +302,9 @@ def main():
         df = nation_df.filter(pl.col("region") == schema)
 
         df = df.join(
-            df.filter(pl.col("date") > datetime.combine(date.today() + timedelta(weeks=-25), datetime.min.time()))
+            df.filter(
+                pl.col("date") > datetime.combine(date.today() + timedelta(weeks=-REMINDER_WEEKS), datetime.min.time())
+            )
             .group_by("email", "ao_id")
             .agg(pl.col("ao").count())
             .group_by("email")
@@ -310,7 +315,6 @@ def main():
         )
 
         # men that haven't posted in a while
-        NO_POST_THRESHOLD = 2
         df_mia = (
             df.group_by("email", "user_id", "home_ao")
             .agg(pl.col("date").max())
@@ -325,7 +329,6 @@ def main():
         )
 
         # men that haven't q'ed in a while but have in the past
-        NO_Q_THRESHOLD = 2
         df_lowq = (
             df.filter(pl.col("q_flag") == 1)
             .group_by("email", "user_id", "home_ao")
@@ -344,7 +347,13 @@ def main():
             df.join(
                 df.group_by("email", "user_id")
                 .agg(pl.col("q_flag").sum())
-                .filter(pl.col("q_flag") == 0)
+                .filter(
+                    (pl.col("q_flag") == 0)
+                    & (
+                        pl.col("date")
+                        < datetime.combine(date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS), datetime.min.time())
+                    )
+                )
                 .drop("q_flag"),
                 on="email",
             )
