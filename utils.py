@@ -225,6 +225,7 @@ def send_to_slack(
                 ),
             ]
         )
+        logging.info(f"Sent all slack messages to {schema} for achievement {idx}")
 
     try:
         client.chat_postMessage(
@@ -232,8 +233,12 @@ def send_to_slack(
             text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
         )
     except SlackApiError as e:
-        logging.error(f"Error sending message to {paxminer_log_channel} for {schema}: {e}")
+        if e.response.get("error") == "invalid_aruments":
+            error_message = e.response.get("response_metadata").get("messages")
+        else:
+            error_message = e.response.get("error")
+        logging.error(f"Error sending Weaselbot runtime message to {paxminer_log_channel} for {schema}: {error_message}")
 
-    logging.info(f"Sent all slack messages to {schema} for achievement {idx}")
+    logging.info(f"Sent all achievement Slack messages to {schema}")
 
     return data_to_upload

@@ -78,7 +78,7 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
             sql = sql.group_by(literal_column(f"'{schema}'").label("region"), u.c.email)
             queries.append(sql)
         except Exception:
-            print(f"Schema {schema} error.")
+            logging.error(f"Schema {schema} error.")
 
     return union_all(*queries)
 
@@ -132,7 +132,7 @@ def nation_sql(
             )
             queries.append(sql)
         except Exception:
-            print(f"Schema {schema} error.")
+            logging.error(f"Schema {schema} error.")
 
     return union_all(*queries)
 
@@ -408,10 +408,6 @@ def main():
         awarded = pl.read_database_uri(str(sql.compile(engine, compile_kwargs={"literal_binds": True})), uri=uri)
         awards = pl.read_database_uri(f"SELECT * FROM {schema}.achievements_list", uri=uri)
 
-        # with engine.begin() as cnxn:
-        #     awarded = pl.from_pandas(pd.read_sql(sql, cnxn, parse_dates=["date_awarded", "created", "updated"]))
-        #     awards = pl.from_pandas(pd.read_sql(select(al), cnxn))
-
         data_to_load = send_to_slack(schema, token, channel, year, awarded, awards, dfs, paxminer_log_channel)
         if not data_to_load.is_empty():
             load_to_database(schema, engine, metadata, data_to_load)
@@ -423,6 +419,6 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.ERROR, datefmt="%Y-%m-%d %H:%M:%S"
     )
     main()
