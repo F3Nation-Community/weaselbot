@@ -286,7 +286,7 @@ def main():
                 f"SELECT channel_id AS home_ao, ao, site_q_user_id FROM {schema}.aos WHERE site_q_user_id IS NOT NULL"
             )
             siteq_df = pl.read_database_uri(query=query, uri=uri)
-            query = f"SELECT default_siteq, slack_token, NO_POST_THRESHOLD, NO_Q_THRESHOLD_WEEKS, REMINDER_WEEKS FROM, NO_Q_THRESHOLD_POSTS weaselbot.regions WHERE paxminer_schema = '{schema}'"
+            query = f"SELECT default_siteq, slack_token, NO_POST_THRESHOLD, NO_Q_THRESHOLD_WEEKS, REMINDER_WEEKS, NO_Q_THRESHOLD_POSTS FROM weaselbot.regions WHERE paxminer_schema = '{schema}'"
             (
                 default_siteq,
                 slack_token,
