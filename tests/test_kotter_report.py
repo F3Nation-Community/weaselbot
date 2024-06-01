@@ -161,9 +161,8 @@ def test_send_weaselbot_report(client, siteq_df, df_mia, df_lowq, df_noq):
         send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq)
 
 
-def test_slack_log(client):
+def test_slack_log(client, engine):
     schema = "schema1"
-    engine = Engine()
     metadata = MetaData()
 
     with pytest.raises(Exception):
