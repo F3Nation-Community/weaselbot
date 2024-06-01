@@ -11,34 +11,39 @@ schema = "f3development"
 MYSQL_ENGINE = "InnoDB"
 MYSQL_CHARSET = "utf8mb3"
 MYSQL_COLLATE = "utf8mb3_general_ci"
+VARCHAR_CHARSET = "utf8"
+VARCHAR_LENGTH = 255
 
-Table(
-    "achievements_list",
-    metadata,
+def create_table(name, columns, metadata, schema):
+    return Table(
+        name,
+        metadata,
+        *columns,
+        mysql_engine=MYSQL_ENGINE,
+        mysql_charset=MYSQL_CHARSET,
+        mysql_collate=MYSQL_COLLATE,
+        schema=schema,
+    )
+
+achievements_list_columns = [
     Column("id", INTEGER(), primary_key=True, nullable=False),
-    Column("name", VARCHAR(charset="utf8", length=255), nullable=False),
-    Column("description", VARCHAR(charset="utf8", length=255), nullable=False),
-    Column("verb", VARCHAR(charset="utf8", length=255), nullable=False),
-    Column("code", VARCHAR(charset="utf8", length=255), nullable=False),
-    mysql_engine=MYSQL_ENGINE,
-    mysql_charset=MYSQL_CHARSET,
-    mysql_collate=MYSQL_COLLATE,
-    schema=schema,
-)
-Table(
-    "achievements_awarded",
-    metadata,
+    Column("name", VARCHAR(charset=VARCHAR_CHARSET, length=VARCHAR_LENGTH), nullable=False),
+    Column("description", VARCHAR(charset=VARCHAR_CHARSET, length=VARCHAR_LENGTH), nullable=False),
+    Column("verb", VARCHAR(charset=VARCHAR_CHARSET, length=VARCHAR_LENGTH), nullable=False),
+    Column("code", VARCHAR(charset=VARCHAR_CHARSET, length=VARCHAR_LENGTH), nullable=False),
+]
+
+achievements_awarded_columns = [
     Column("id", INTEGER(), primary_key=True, nullable=False),
     Column("achievement_id", INTEGER(), ForeignKey(f"{schema}.achievements_list.id"), nullable=False),
-    Column("pax_id", VARCHAR(charset="utf8", length=255), nullable=False),
+    Column("pax_id", VARCHAR(charset=VARCHAR_CHARSET, length=VARCHAR_LENGTH), nullable=False),
     Column("date_awarded", DATE(), nullable=False),
     Column("created", DATETIME(), nullable=False, server_default=func.current_timestamp()),
     Column("updated", DATETIME(), nullable=False, server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")),
-    mysql_engine=MYSQL_ENGINE,
-    mysql_charset=MYSQL_CHARSET,
-    mysql_collate=MYSQL_COLLATE,
-    schema=schema,
-)
+]
+
+achievements_list = create_table("achievements_list", achievements_list_columns, metadata, schema)
+achievements_awarded = create_table("achievements_awarded", achievements_awarded_columns, metadata, schema)
 
 insert_vals = [
     {
