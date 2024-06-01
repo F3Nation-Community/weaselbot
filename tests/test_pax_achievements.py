@@ -1,55 +1,45 @@
-import polars as pl
-import pytest
-from sqlalchemy import MetaData, create_engine
+from unittest.mock import MagicMock, call, patch
 
-from kotter_report import nation_sql
-from utils import mysql_connection
+from sqlalchemy.exc import NoSuchTableError
+
+from pax_achievements import main
 
 
-@pytest.fixture(scope="module")
-def engine():
-    return mysql_connection()
+@patch('pax_achievements.mysql_connection')
+def test_main_database_connection(mock_mysql_connection):
+    mock_mysql_connection.return_value = MagicMock()
+    main()
+    mock_mysql_connection.assert_called_once()
 
-@pytest.fixture(scope="module")
-def metadata():
-    return MetaData()
+@patch('pax_achievements.pl.read_database_uri')
+@patch('pax_achievements.mysql_connection')
+def test_main_database_read(mock_mysql_connection, mock_read_database_uri):
+    mock_mysql_connection.return_value = MagicMock()
+    mock_read_database_uri.return_value = MagicMock()
+    main()
+    assert call(str(anything), anything) in mock_read_database_uri.call_args_list
 
-@pytest.fixture(scope="module")
-def schemas_df():
-    # Replace with your own test data
-    data = [("f3chicago",), ("f3_618",), ("f3naperville",), ("f3smokies",)]
-    return pl.DataFrame(data, schema=["schema_name"])
+@patch('pax_achievements.load_to_database')
+@patch('pax_achievements.mysql_connection')
+def test_main_database_write(mock_mysql_connection, mock_load_to_database):
+    mock_mysql_connection.return_value = MagicMock()
+    mock_load_to_database.return_value = MagicMock()
+    main()
+    assert call(anything, anything, anything, anything) in mock_load_to_database.call_args_list
 
-def test_nation_sql(schemas_df, engine, metadata):
-    expected_sql = (
-        "SELECT users.email, users.user_name, users.user_id AS slack_user_id, "
-        "bd_attendance.ao_id, aos.ao AS ao, beatdowns.bd_date AS date, "
-        "CASE WHEN (bd_attendance.user_id = beatdowns.q_user_id OR bd_attendance.user_id = beatdowns.coq_user_id) THEN 1 ELSE 0 END AS q_flag, "
-        "beatdowns.backblast "
-        "FROM users JOIN bd_attendance ON bd_attendance.user_id = users.user_id "
-        "JOIN beatdowns ON (bd_attendance.q_user_id = beatdowns.q_user_id OR bd_attendance.q_user_id = beatdowns.coq_user_id) "
-        "AND bd_attendance.ao_id = beatdowns.ao_id AND bd_attendance.date = beatdowns.bd_date "
-        "JOIN aos ON beatdowns.ao_id = aos.channel_id "
-        "WHERE YEAR(beatdowns.bd_date) = YEAR(CURDATE()) "
-        "AND beatdowns.bd_date <= CURDATE() "
-        "AND users.email != 'none' "
-        "AND users.user_name != 'PAXminer' "
-        "AND beatdowns.q_user_id IS NOT NULL "
-        "UNION ALL "
-        "SELECT users.email, users.user_name, users.user_id AS slack_user_id, "
-        "bd_attendance.ao_id, aos.ao AS ao, beatdowns.bd_date AS date, "
-        "CASE WHEN (bd_attendance.user_id = beatdowns.q_user_id OR bd_attendance.user_id = beatdowns.coq_user_id) THEN 1 ELSE 0 END AS q_flag, "
-        "beatdowns.backblast "
-        "FROM users JOIN bd_attendance ON bd_attendance.user_id = users.user_id "
-        "JOIN beatdowns ON (bd_attendance.q_user_id = beatdowns.q_user_id OR bd_attendance.q_user_id = beatdowns.coq_user_id) "
-        "AND bd_attendance.ao_id = beatdowns.ao_id AND bd_attendance.date = beatdowns.bd_date "
-        "JOIN aos ON beatdowns.ao_id = aos.channel_id "
-        "WHERE YEAR(beatdowns.bd_date) = YEAR(CURDATE()) "
-        "AND beatdowns.bd_date <= CURDATE() "
-        "AND users.email != 'none' "
-        "AND users.user_name != 'PAXminer' "
-        "AND beatdowns.q_user_id IS NOT NULL"
-    )
+@patch('pax_achievements.send_to_slack')
+@patch('pax_achievements.mysql_connection')
+def test_main_slack_message_sending(mock_mysql_connection, mock_send_to_slack):
+    mock_mysql_connection.return_value = MagicMock()
+    mock_send_to_slack.return_value = MagicMock()
+    main()
+    assert call(anything, anything, anything, anything, anything, anything, anything, anything) in mock_send_to_slack.call_args_list
 
-    query = nation_sql(schemas_df, engine, metadata)
-    assert str(query) == expected_sql
+@patch('pax_achievements.Table')
+@patch('pax_achievements.mysql_connection')
+def test_main_exception_handling(mock_mysql_connection, mock_table):
+    mock_mysql_connection.return_value = MagicMock()
+    mock_table.side_effect = NoSuchTableError
+    with patch('pax_achievements.logging.error') as mock_log:
+        main()
+        assert call(f"No AO table found in in {anything}") in mock_log.call_args_list

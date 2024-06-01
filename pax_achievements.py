@@ -8,7 +8,7 @@ import polars as pl
 from sqlalchemy import MetaData, Selectable, Subquery, Table, text
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.exc import NoSuchTableError, SQLAlchemyError
 from sqlalchemy.sql import and_, case, func, literal_column, or_, select, union_all
 
 from utils import mysql_connection, send_to_slack
@@ -42,10 +42,9 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
     There's no perfect mechanism to account for this and some mis-assignments will occur.
     """
     queries = []
+    schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development"]))
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development"):
-            continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
             a = Table("bd_attendance", metadata, autoload_with=engine, schema=schema)
@@ -77,8 +76,10 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
             sql = sql.where(func.year(b.c.bd_date) == func.year(func.curdate()))
             sql = sql.group_by(literal_column(f"'{schema}'").label("region"), u.c.email)
             queries.append(sql)
-        except Exception:
-            logging.error(f"Schema {schema} error.")
+        except SQLAlchemyError as e:
+            logging.error(f"Schema {schema} error: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error in schema {schema}: {str(e)}")
 
     return union_all(*queries)
 
@@ -90,10 +91,9 @@ def nation_sql(
     The main data set. This is what is used to build all achievement information.
     """
     queries = []
+    schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development"]))
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development"):
-            continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
             a = Table("bd_attendance", metadata, autoload_with=engine, schema=schema)
@@ -131,8 +131,10 @@ def nation_sql(
                 b.c.q_user_id != None,
             )
             queries.append(sql)
-        except Exception:
-            logging.error(f"Schema {schema} error.")
+        except SQLAlchemyError as e:
+            logging.error(f"Schema {schema} error: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error in schema {schema}: {str(e)}")
 
     return union_all(*queries)
 
@@ -374,8 +376,8 @@ def main():
             continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
-        except Exception:
-            logging.error(f"No AO table in {schema}")
+        except NoSuchTableError:
+            logging.error(f"No AO table found in in {schema}")
             continue
 
         with engine.begin() as cnxn:

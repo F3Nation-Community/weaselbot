@@ -260,7 +260,7 @@ def slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient
 
 def main():
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.ERROR, datefmt="%Y-%m-%d %H:%M:%S"
     )
     engine = mysql_connection()
     metadata = MetaData()
