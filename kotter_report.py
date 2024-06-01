@@ -9,6 +9,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from sqlalchemy import MetaData, Subquery, Table
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import Selectable, and_, case, func, literal_column, or_, select, union_all
 
 from utils import mysql_connection, slack_client
@@ -78,8 +79,10 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
             sql = sql.where(func.year(b.c.bd_date) == func.year(func.curdate()))
             sql = sql.group_by(literal_column(f"'{schema}'").label("region"), u.c.email, u.c.user_id)
             queries.append(sql)
-        except Exception:
-            print(f"Schema {schema} error.")
+        except SQLAlchemyError as e:
+            logging.error(f"Schema {schema} error: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error in schema {schema}: {str(e)}")
 
     return union_all(*queries)
 
@@ -126,8 +129,10 @@ def nation_sql(
                 b.c.q_user_id != None,
             )
             queries.append(sql)
-        except Exception:
-            print(f"Schema {schema} error.")
+        except SQLAlchemyError as e:
+            logging.error(f"Schema {schema} error: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error in schema {schema}: {str(e)}")
 
     return union_all(*queries)
 
