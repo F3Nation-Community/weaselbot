@@ -13,8 +13,6 @@ from sqlalchemy.sql import Selectable, and_, case, func, literal_column, or_, se
 
 from utils import mysql_connection, slack_client
 
-# NO_Q_THRESHOLD_POSTS = 4
-
 
 def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:
     """
