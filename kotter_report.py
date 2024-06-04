@@ -306,7 +306,7 @@ def main():
 
         df = df.join(
             df.filter(
-                pl.col("date") > datetime.combine(date.today() + timedelta(weeks=-REMINDER_WEEKS), datetime.min.time())
+                pl.col("date") > date.today() + timedelta(weeks=-REMINDER_WEEKS)
             )
             .group_by("email", "ao_id")
             .agg(pl.col("ao").count())
@@ -323,7 +323,7 @@ def main():
             .agg(pl.col("date").max())
             .filter(
                 pl.col("date")
-                < datetime.combine(date.today() + timedelta(weeks=-NO_POST_THRESHOLD), datetime.min.time())
+                < date.today() + timedelta(weeks=-NO_POST_THRESHOLD)
             )
             .join(siteq_df, how="left", on="home_ao")
             .drop("email")
@@ -337,7 +337,7 @@ def main():
             .group_by("email", "user_id", "home_ao")
             .agg(pl.col("date").max())
             .filter(
-                pl.col("date") < datetime.combine(date.today() + timedelta(weeks=-NO_Q_THRESHOLD), datetime.min.time())
+                pl.col("date") < date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
             )
             .join(siteq_df, how="left", on="home_ao")
             .drop("email")
@@ -350,13 +350,7 @@ def main():
             df.join(
                 df.group_by("email", "user_id")
                 .agg(pl.col("q_flag").sum())
-                .filter(
-                    (pl.col("q_flag") == 0)
-                    & (
-                        pl.col("date")
-                        < datetime.combine(date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS), datetime.min.time())
-                    )
-                )
+                .filter(pl.col("q_flag") == 0)
                 .drop("q_flag"),
                 on="email",
             )
