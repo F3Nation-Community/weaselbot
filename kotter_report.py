@@ -1,7 +1,7 @@
 #!/usr/bin/env /Users/jamessheldon/Library/Caches/pypoetry/virtualenvs/weaselbot-93dzw48B-py3.12/bin/python
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Tuple
 
 import polars as pl
