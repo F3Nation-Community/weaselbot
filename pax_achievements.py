@@ -372,7 +372,7 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development", "f3csra"):
+        if schema in ("f3devcommunity", "f3development", "f3csra", "f3neo"):
             continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)

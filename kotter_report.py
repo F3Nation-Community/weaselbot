@@ -45,8 +45,6 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
     queries = []
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development"):
-            continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
             a = Table("bd_attendance", metadata, autoload_with=engine, schema=schema)
@@ -93,8 +91,6 @@ def nation_sql(
     queries = []
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development"):
-            continue
         try:
             u = Table("users", metadata, autoload_with=engine, schema=schema)
             a = Table("bd_attendance", metadata, autoload_with=engine, schema=schema)
@@ -260,13 +256,14 @@ def slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient
 
 def main():
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.ERROR, datefmt="%Y-%m-%d %H:%M:%S"
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
     )
     engine = mysql_connection()
     metadata = MetaData()
     uri = engine.url.render_as_string(hide_password=False).replace("+mysqlconnector", "")
 
     schemas = pl.read_database_uri("SELECT schema_name FROM paxminer.regions WHERE schema_name LIKE 'f3%'", uri=uri)
+    schemas = schemas.filter(~pl.col("schema_name").is_in(("f3devcommunity", "f3development", "f3csra")))
 
     home_regions_sql = str(
         build_home_regions(schemas, metadata, engine).compile(engine, compile_kwargs={"literal_binds": True})
