@@ -103,7 +103,6 @@ def nation_sql(
             sql = select(
                 u.c.email,
                 u.c.user_name,
-                u.c.user_id.label("slack_user_id"),
                 a.c.ao_id,
                 ao.c.ao.label("ao"),
                 b.c.bd_date.label("date"),
@@ -141,7 +140,7 @@ def nation_sql(
 
 def the_priest(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Post for 25 Qsource lessons"""
-    grouping = ["year", "slack_user_id", "region"]
+    grouping = ["year", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
         .filter((bb_filter) | (ao_filter))
@@ -156,7 +155,7 @@ def the_priest(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.D
 
 def the_monk(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Post at 4 QSources in a month"""
-    grouping = ["month", "slack_user_id", "region"]
+    grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
         .filter((bb_filter) | (ao_filter))
@@ -171,7 +170,7 @@ def the_monk(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 def leader_of_men(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Q at 4 beatdowns in a month"""
-    grouping = ["month", "slack_user_id", "region"]
+    grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
         .filter((pl.col("q_flag") == 1) & (bb_filter) & (ao_filter))
@@ -186,7 +185,7 @@ def leader_of_men(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> p
 
 def the_boss(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Q at 6 beatdowns in a month"""
-    grouping = ["month", "slack_user_id", "region"]
+    grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
         .filter((pl.col("q_flag") == 1) & (bb_filter) & (ao_filter))
@@ -201,7 +200,7 @@ def the_boss(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 def hammer_not_nail(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Q at 6 beatdowns in a week"""
-    grouping = ["week", "slack_user_id", "region"]
+    grouping = ["week", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.week().alias("week"))
         .filter((pl.col("q_flag") == 1) & (bb_filter) & (ao_filter))
@@ -216,7 +215,7 @@ def hammer_not_nail(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) ->
 
 def cadre(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Q at 7 different AOs in a month"""
-    grouping = ["month", "slack_user_id", "region"]
+    grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
         .filter((pl.col("q_flag") == 1) & (bb_filter) & (ao_filter))
@@ -231,7 +230,7 @@ def cadre(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
 
 def el_presidente(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Q at 20 beatdowns in a year"""
-    grouping = ["year", "slack_user_id", "region"]
+    grouping = ["year", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
         .filter((pl.col("q_flag") == 1) & (bb_filter) & (ao_filter))
@@ -251,7 +250,7 @@ def posts(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
     Centurion: Post at 100 beatdowns in a year
     Karate Kid: Post at 150 beatdowns in a year
     Crazy Person: Post at 200 beatdowns in a year"""
-    grouping = ["year", "slack_user_id", "region"]
+    grouping = ["year", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
         .filter((bb_filter) & (ao_filter))
@@ -263,7 +262,7 @@ def posts(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
 
 def six_pack(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Post at 6 beatdowns in a week"""
-    grouping = ["week", "slack_user_id", "region"]
+    grouping = ["week", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.week().alias("week"))
         .filter((bb_filter) & (ao_filter))
@@ -278,7 +277,7 @@ def six_pack(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 def hdtf(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
     """Post 50 times at an AO"""
-    grouping = ["year", "slack_user_id", "region", "ao_id"]
+    grouping = ["year", "email", "region", "ao_id"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
         .filter((bb_filter) & (ao_filter))
@@ -372,7 +371,7 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development", "f3csra", "f3neo"):
+        if schema in ("f3devcommunity", "f3development", "f3csra"):
             continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
@@ -410,7 +409,13 @@ def main():
         awarded = pl.read_database_uri(str(sql.compile(engine, compile_kwargs={"literal_binds": True})), uri=uri)
         awards = pl.read_database_uri(f"SELECT * FROM {schema}.achievements_list", uri=uri)
 
-        data_to_load = send_to_slack(schema, token, channel, year, awarded, awards, dfs, paxminer_log_channel)
+        # we're pushing one schema at a time to Slack. Ensure all slack_id's are valid for that specific schema
+        users = pl.read_database_uri(f"SELECT email, user_id as slack_user_id FROM {schema}.users", uri=uri)
+        dfs_regional = []
+        for df in dfs:
+            dfs_regional.append(df.filter(pl.col("region") == schema).join(users, on="email").drop("email"))
+
+        data_to_load = send_to_slack(schema, token, channel, year, awarded, awards, dfs_regional, paxminer_log_channel)
         if not data_to_load.is_empty():
             load_to_database(schema, engine, metadata, data_to_load)
 
@@ -421,6 +426,6 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.ERROR, datefmt="%Y-%m-%d %H:%M:%S"
+        format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
     )
     main()
