@@ -334,7 +334,7 @@ def main():
             .group_by("email", "user_id", "home_ao")
             .agg(pl.col("date").max())
             .filter(
-                pl.col("date") < date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
+                pl.col("date") < date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS)
             )
             .join(siteq_df, how="left", on="home_ao")
             .drop("email")
@@ -351,6 +351,9 @@ def main():
                 .drop("q_flag"),
                 on="email",
             )
+            .filter(
+                pl.col("date") < date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
+            )
             .select("email", "user_id", "home_ao")
             .unique()
             .join(siteq_df, how="left", on="home_ao")
@@ -358,8 +361,8 @@ def main():
         )
 
         client = slack_client(slack_token)
-        send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq)
-        slack_log(schema, engine, metadata, client)
+        # send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq)
+        # slack_log(schema, engine, metadata, client)
 
     engine.dispose()
 
