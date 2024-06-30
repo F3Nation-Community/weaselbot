@@ -361,8 +361,8 @@ def main():
         )
 
         client = slack_client(slack_token)
-        # send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq)
-        # slack_log(schema, engine, metadata, client)
+        send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq)
+        slack_log(schema, engine, metadata, client)
 
     engine.dispose()
 
