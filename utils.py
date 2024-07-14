@@ -141,7 +141,7 @@ def send_to_slack(
     :rtype: pl.DataFrame
     """
 
-    client = slack_client(token)  # only need one client per row (region)
+    client = slack_client(token)
     data_to_upload = pl.DataFrame()
 
     # Instantiate a counter for each pax. This is how we'll track total award earned counts between
@@ -150,10 +150,10 @@ def send_to_slack(
     for r in (
         awarded.filter(pl.col("date_awarded").dt.year() == year)
         .group_by(["pax_id", "achievement_id"])
-        .agg(pl.col("id").count())
-        .iter_rows()
+        .agg(pl.col("id").count().alias("count"))
+        .iter_rows(named=True)
     ):
-        _d[r[0]].update({r[1]: r[2]})
+        _d[r["pax_id"]].update({r["achievement_id"]: r["count"]})
 
     for idx, df in enumerate(dfs, start=1):
         if df.is_empty():
@@ -198,6 +198,20 @@ def send_to_slack(
                 "time this year he's earned this award. Keep up the good work!",
             ]
             sMessage = "".join(sMessage)
+            if idx == 13 and total_idx_achievements > 1:
+                # adding new logic for 6 pack. Turns out, this weekly achievement makes the achievements
+                # channel too noisy in regions with lots of men that live and breathe F3. This block will
+                # be triggered for only 6 pack (idx == 13) and will only run if the man has already earned
+                # 6 pack this year. Will eventually change it to monthly cadence.
+                # Instead of posting to the achievements channel, this will be a DM to that man.
+                sMessage = f"Nice work brother. You just earned 6 pack for the {total_idx_achievements}{ending} time this year!"
+                try:
+                    response = client.chat_postMessage(channel=record[3], text=sMessage)
+                    client.reactions_add(channel=record[3], name="fire", timestamp=response.get("ts"))
+                    logging.info(f"Successfully sent slack DM to {record[3]} for achievement {idx}")
+                except SlackApiError as e:
+                    logging.error(e.response["error"])
+                continue
             try:
                 response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
                 client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
