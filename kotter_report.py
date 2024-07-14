@@ -159,8 +159,8 @@ def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl
     if df_posts.height > 0:
         sMessage.append("\n\nThe following men haven't posted in a while.")
 
-        for row in df_posts.iter_rows():
-            sMessage.append(f"\n- <@{row[0]}> last posted {row[2]}")
+        for row in df_posts.iter_rows(named=True):
+            sMessage.append(f"\n- <@{row['user_id']}> last posted {row['date']}")
 
     if df_qs.height > 0:
         sMessage.append("\n\nThese guys haven't Q'd in a while. Here's how many days it's been:")
@@ -177,8 +177,8 @@ def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl
 
     if df_noqs.height > 0:
         sMessage.append("\n\nThese guys have never been Q:")
-        for row in df_noqs.iter_rows():
-            sMessage.append(f"\n- <@{row[0]}>")
+        for row in df_noqs.iter_rows(named=True):
+            sMessage.append(f"\n- <@{row['user_id']}>")
 
     return "".join(sMessage)
 
@@ -196,8 +196,8 @@ def send_weaselbot_report(
     Loop through site-qs that have PAX on the list and send the weaselbot report.
     Then send the overall message.
     """
-    for row in siteq_df.iter_rows():
-        siteq = row[-1]
+    for row in siteq_df.iter_rows(named=True):
+        siteq = row["site_q_user_id"]
         filter = pl.col("site_q_user_id") == siteq
         mia = df_mia.filter(filter)
         lowq = df_lowq.filter(filter)
@@ -286,7 +286,7 @@ def main():
                 f"SELECT channel_id AS home_ao, ao, site_q_user_id FROM {schema}.aos WHERE site_q_user_id IS NOT NULL"
             )
             siteq_df = pl.read_database_uri(query=query, uri=uri)
-            query = f"SELECT default_siteq, slack_token, NO_POST_THRESHOLD, NO_Q_THRESHOLD_WEEKS, REMINDER_WEEKS, NO_Q_THRESHOLD_POSTS FROM weaselbot.regions WHERE paxminer_schema = '{schema}'"
+            query = f"SELECT default_siteq, slack_token, NO_POST_THRESHOLD, NO_Q_THRESHOLD_WEEKS, REMINDER_WEEKS, NO_Q_THRESHOLD_POSTS, HOME_AO_CAPTURE FROM weaselbot.regions WHERE paxminer_schema = '{schema}'"
             (
                 default_siteq,
                 slack_token,
@@ -294,6 +294,7 @@ def main():
                 NO_Q_THRESHOLD,
                 REMINDER_WEEKS,
                 NO_Q_THRESHOLD_POSTS,
+                HOME_AO_CAPTURE,
             ) = pl.read_database_uri(query=query, uri=uri).row(0)
         except Exception as e:
             # if the site_q_user_id column isn't in their ao table, they're not set up for Kotter reports. We can stop here.
@@ -302,9 +303,7 @@ def main():
         df = nation_df.filter(pl.col("region") == schema)
 
         df = df.join(
-            df.filter(
-                pl.col("date") > date.today() + timedelta(weeks=-REMINDER_WEEKS)
-            )
+            df.filter(pl.col("date") > date.today() + timedelta(weeks=-HOME_AO_CAPTURE))
             .group_by("email", "ao_id")
             .agg(pl.col("ao").count())
             .group_by("email")
@@ -319,10 +318,12 @@ def main():
             df.group_by("email", "user_id", "home_ao")
             .agg(pl.col("date").max())
             .filter(
-                pl.col("date")
-                < date.today() + timedelta(weeks=-NO_POST_THRESHOLD)
+                pl.col("date").is_between(
+                    date.today() + timedelta(weeks=-REMINDER_WEEKS), date.today() + timedelta(weeks=-NO_POST_THRESHOLD)
+                )
+                # < date.today() + timedelta(weeks=-NO_POST_THRESHOLD)
             )
-            .join(siteq_df, how="left", on="home_ao")
+            .join(siteq_df, how="left", on="home_ao", coalesce=True)
             .drop("email")
             .sort("date", descending=True)
             .with_columns(pl.col("date").dt.strftime("%B %d, %Y"))
@@ -334,9 +335,13 @@ def main():
             .group_by("email", "user_id", "home_ao")
             .agg(pl.col("date").max())
             .filter(
-                pl.col("date") < date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS)
+                pl.col("date").is_between(
+                    date.today() + timedelta(weeks=-REMINDER_WEEKS),
+                    date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS),
+                )
+                # < date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS)
             )
-            .join(siteq_df, how="left", on="home_ao")
+            .join(siteq_df, how="left", on="home_ao", coalesce=True)
             .drop("email")
             .sort("date", descending=True)
         )
@@ -352,11 +357,14 @@ def main():
                 on="email",
             )
             .filter(
-                pl.col("date") < date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
+                pl.col("date").is_between(
+                    date.today() + timedelta(weeks=-REMINDER_WEEKS), date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
+                )
+                # < date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
             )
             .select("email", "user_id", "home_ao")
             .unique()
-            .join(siteq_df, how="left", on="home_ao")
+            .join(siteq_df, how="left", on="home_ao", coalesce=True)
             .drop("email")
         )
 
