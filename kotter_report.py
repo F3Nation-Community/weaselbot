@@ -339,12 +339,12 @@ def main():
                     date.today() + timedelta(weeks=-REMINDER_WEEKS),
                     date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS),
                 )
-                # < date.today() + timedelta(weeks=-NO_Q_THRESHOLD_POSTS)
             )
             .join(siteq_df, how="left", on="home_ao", coalesce=True)
             .drop("email")
             .sort("date", descending=True)
         )
+        df_lowq = df_lowq.filter(~pl.col("user_id").is_in(df_mia.get_column("user_id").to_list()))
 
         # men that have never been Q
         # data filtered for the time period. May have been Q prior.
@@ -360,13 +360,14 @@ def main():
                 pl.col("date").is_between(
                     date.today() + timedelta(weeks=-REMINDER_WEEKS), date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
                 )
-                # < date.today() + timedelta(weeks=-NO_Q_THRESHOLD)
             )
             .select("email", "user_id", "home_ao")
             .unique()
             .join(siteq_df, how="left", on="home_ao", coalesce=True)
             .drop("email")
         )
+        df_noq = df_noq.filter(~pl.col("user_id").is_in(df_mia.get_column("user_id").to_list()))
+        df_noq = df_noq.filter(~pl.col("user_id").is_in(df_lowq.get_column("user_id").to_list()))
 
         client = slack_client(slack_token)
         send_weaselbot_report(schema, client, siteq_df, df_mia, df_lowq, df_noq, default_siteq)
