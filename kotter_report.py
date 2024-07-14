@@ -157,14 +157,13 @@ def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl
     ]
 
     if df_posts.height > 0:
-        sMessage.append("\n\nThe following PAX haven't posted in a bit. ")
-        sMessage.append("Now may be a good time to reach out to them when you get a minute. No OYO! :muscle:")
+        sMessage.append("\n\nThe following men haven't posted in a while.")
 
         for row in df_posts.iter_rows():
             sMessage.append(f"\n- <@{row[0]}> last posted {row[2]}")
 
     if df_qs.height > 0:
-        sMessage.append("\n\nThese guys haven't Q'd anywhere in a while (or at all!):")
+        sMessage.append("\n\nThese guys haven't Q'd in a while. Here's how many days it's been:")
 
         df_qs = (
             df_qs.with_columns(pl.Series([date.today()]).alias("today"))
@@ -174,11 +173,12 @@ def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl
         )
 
         for row in df_qs.iter_rows():
-            sMessage.append(f"\n- <@{row[0]}> hasn't been Q since {row[2]}. That's {row[5].days} days!")
+            sMessage.append(f"\n- <@{row[0]}>: {row[5].days}!")
 
     if df_noqs.height > 0:
+        sMessage.append("\n\nThese guys have never been Q:")
         for row in df_noqs.iter_rows():
-            sMessage.append(f"\n- <@{row[0]}> (no Q yet!)")
+            sMessage.append(f"\n- <@{row[0]}>")
 
     return "".join(sMessage)
 
