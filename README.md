@@ -64,7 +64,7 @@ settings:
 ### Additional Slack setup
 
 1. If you want the achievements functionality, create a channel in your Slack workspace called `#achievements-unlocked`, or something similar. Copy that new channel's `Channel ID`. You can find this on Desktop by clicking on the dropdown for the channel, the channel's ID will be at the bottom
-2. Please send me (@Sumo, you can find me on the F3 Nation Slack space) the following info:
+2. Please send me (`@Sumo (Chicago)` on the [F3 Nation Slack](https://f3nation.slack.com/)) the following info:
     * Your region's name and PAXMiner database name
     * The bot token that you generated above. It starts with `xoxb`.
     * The Channel ID that you generated in the previous step for achievements
