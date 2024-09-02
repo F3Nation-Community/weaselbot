@@ -24,7 +24,7 @@ You will be creating the structure for WeaselBot, but I will run it from my end 
 
 ### App setup
 
-1. Ensure you're a Slack admin and navigate to [api.slack.com](https://api.slack.com/), click on `Create an app`
+1. Ensure you're a Slack admin and navigate to [api.slack.com/apps/](https://api.slack.com/apps/), click on `Create an app`
 2. Select `From an app manifest`, and select your region's workspace
 3. Paste in the following code, then click `Create`:
 ```yaml
