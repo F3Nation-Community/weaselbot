@@ -24,7 +24,7 @@ You will be creating the structure for WeaselBot, but I will run it from my end 
 
 ### App setup
 
-1. Ensure you're a Slack admin and navigate to [api.slack.com](https://api.slack.com/), click on `Create an app`
+1. Ensure you're a Slack admin and navigate to [api.slack.com/apps/](https://api.slack.com/apps/), click on `Create New App`
 2. Select `From an app manifest`, and select your region's workspace
 3. Paste in the following code, then click `Create`:
 ```yaml
@@ -64,7 +64,7 @@ settings:
 ### Additional Slack setup
 
 1. If you want the achievements functionality, create a channel in your Slack workspace called `#achievements-unlocked`, or something similar. Copy that new channel's `Channel ID`. You can find this on Desktop by clicking on the dropdown for the channel, the channel's ID will be at the bottom
-2. Please send me (@Sumo, you can find me on the F3 Nation Slack space) the following info:
+2. Please send me (`@Sumo (Chicago)` on the [F3 Nation Slack](https://f3nation.slack.com/)) the following info:
     * Your region's name and PAXMiner database name
     * The bot token that you generated above. It starts with `xoxb`.
     * The Channel ID that you generated in the previous step for achievements
