@@ -42,7 +42,7 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
     There's no perfect mechanism to account for this and some mis-assignments will occur.
     """
     queries = []
-    schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development", "f3csra"]))
+    schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development", "f3csra", "f3texarcana"]))
     for row in schemas.iter_rows():
         schema = row[0]
         try:
@@ -91,7 +91,7 @@ def nation_sql(
     The main data set. This is what is used to build all achievement information.
     """
     queries = []
-    schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development", "f3csra"]))
+    schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development", "f3csra", "f3texarcana"]))
     for row in schemas.iter_rows():
         schema = row[0]
         try:
@@ -371,7 +371,7 @@ def main():
     logging.info("Parsing region info and sending to Slack...")
     for row in schemas.iter_rows():
         schema = row[0]
-        if schema in ("f3devcommunity", "f3development", "f3csra"):
+        if schema in ("f3devcommunity", "f3development", "f3csra", "f3texarcana"):
             continue
         try:
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
