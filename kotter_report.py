@@ -166,7 +166,7 @@ def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl
         sMessage.append("\n\nThese guys haven't Q'd in a while. Here's how many days it's been:")
 
         df_qs = (
-            df_qs.with_columns(pl.Series([date.today()]).alias("today"))
+            df_qs.with_columns(pl.lit(date.today()).alias("today"))
             .with_columns(pl.col("today").sub(pl.col("date")))
             .sort("today")
             .with_columns(pl.col("date").dt.strftime("%B %d, %Y"))
