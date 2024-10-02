@@ -79,7 +79,7 @@ Or you can use ChatGPT or your favorite AI image generator to create your own av
 
 If enabled, WeaselBot will pull your PAXMiner data daily to see if any of your PAX have crossed certain activity thresholds. If they have, and if they haven't already been awarded them (as per the `achievements_awarded` table), WeaselBot will give them a shout-out in your `#achievements-unlocked` channel and add the award to your `achievements_awarded` table. This table in turn drives the `achievements_view` view, which you can use in your region's dashboard / reporting for a cool "trophy case".
 
-Please note that the 6-Pack achievement is a weekly achievement. When a PAX earns 6-Pack the first time in a year, a message is sent to `#achievements-unlcoked`. All subsequent 6-Pack achievements for that PAX are sent as a DM to that PAX. This is the only achievement that displays this behavior.
+Please note that the 6-Pack achievement is a weekly achievement. When a PAX earns 6-Pack the first time in a year, a message is sent to `#achievements-unlocked`. All subsequent 6-Pack achievements for that PAX are sent as a DM to that PAX. This is the only achievement that displays this behavior.
 
 ### Things to know / best practices
 
