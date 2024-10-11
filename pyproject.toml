@@ -36,7 +36,7 @@ authors = ["Evan Petzoldt <evan.petzoldt@protonmail.com>", "Jim Sheldon <sumo@f3
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.13"
 asttokens = "^2.4.1"
 backcall = "^0.2.0"
 black = "^23.12.1"
@@ -88,7 +88,7 @@ pytest = "^7.4.4"
 pre-commit = "^3.6.0"
 ruff = "^0.1.11"
 sqlparse = "^0.4.4"
-pyarrow = "^14.0.2"
+pyarrow = {version = "^18.0.0.dev451+g45b36976a", allow-prereleases = true}
 polars = "^1.0.0"
 connectorx = "^0.3.3"
 
