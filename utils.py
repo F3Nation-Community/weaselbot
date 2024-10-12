@@ -202,7 +202,7 @@ def send_to_slack(
                 # adding new logic for 6 pack. Turns out, this weekly achievement makes the achievements
                 # channel too noisy in regions with lots of men that live and breathe F3. This block will
                 # be triggered for only 6 pack (idx == 13) and will only run if the man has already earned
-                # 6 pack this year. Will eventually change it to monthly cadence.
+                # 6 pack this year.
                 # Instead of posting to the achievements channel, this will be a DM to that man.
                 sMessage = f"Nice work brother. You just earned 6 pack for the {total_idx_achievements}{ending} time this year!"
                 try:
