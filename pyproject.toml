@@ -30,13 +30,14 @@ ignore = [
 
 [tool.poetry]
 name = "weaselbot"
-version = "1.0.0"
+version = "1.5.0"
 description = ""
 authors = ["Evan Petzoldt <evan.petzoldt@protonmail.com>", "Jim Sheldon <sumo@f3chicago.com>"]
+package-mode = false
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.13"
 asttokens = "^2.4.1"
 backcall = "^0.2.0"
 black = "^23.12.1"
@@ -88,9 +89,9 @@ pytest = "^7.4.4"
 pre-commit = "^3.6.0"
 ruff = "^0.1.11"
 sqlparse = "^0.4.4"
-pyarrow = {version = ">=17.0.0", allow-prereleases = true}
+pyarrow = "^18.0.0"
 polars = "^1.0.0"
-connectorx = {version = ">=0.3.3", allow-prereleases = true}
+connectorx = "^0.4"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.8.0"
