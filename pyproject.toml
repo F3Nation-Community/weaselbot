@@ -37,7 +37,7 @@ package-mode = false
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.13"
+python = "^3.12"
 asttokens = "^2.4.1"
 backcall = "^0.2.0"
 black = "^23.12.1"
