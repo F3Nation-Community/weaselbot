@@ -1,13 +1,13 @@
 from sqlalchemy import Column, ForeignKey, MetaData, Table, func, select, text
 from sqlalchemy.dialects.mysql import DATE, DATETIME, INTEGER, VARCHAR, insert
-from sqlalchemy.exc import ProgrammingError
+# from sqlalchemy.exc import ProgrammingError
 
 from utils import mysql_connection
 
 engine = mysql_connection()
 metadata = MetaData()
 
-schema = "f3pensacola"
+schema = "f3lalaland"
 MYSQL_ENGINE = "InnoDB"
 MYSQL_CHARSET = "utf8mb3"
 MYSQL_COLLATE = "utf8mb3_general_ci"
@@ -141,7 +141,7 @@ with engine.begin() as cnxn:
     cnxn.execute(sql)
     try:
         cnxn.execute(text(f"ALTER TABLE {schema}.aos ADD site_q_user_id VARCHAR(45) NULL;"))
-    except ProgrammingError as e:
+    except Exception as e:
         print(e)
 
 
