@@ -31,7 +31,7 @@ You will be creating the structure for WeaselBot, but I will run it from my end 
 ```yaml
 display_information:
   name: WeaselBot
-  description: "Hi there! I'm a bot created by @Moneyball in F3 St. Charles and maintained by @Sumo in F3 Chicago to do some stuff like #achievement-unlocked."
+  description: "Hi there! I'm a bot created by @Moneyball in F3 St. Charles to do some stuff like #achievement-unlocked."
   background_color: '#2c2d30'
 features:
   bot_user:
