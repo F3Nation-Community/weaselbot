@@ -146,3 +146,5 @@ f3_data_builder.ipynb
 Untitled.ipynb
 kotter report rewrite.ipynb
 .DS_Store
+.ruff_cache/
+.benchmarks/
