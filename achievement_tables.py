@@ -1,3 +1,42 @@
+"""
+This module defines the schema and operations for the achievements tables in a MySQL database using SQLAlchemy.
+
+Functions:
+    create_table(name, columns, metadata, schema):
+        Creates a SQLAlchemy Table object with the specified name, columns, metadata, and schema.
+
+Tables:
+    achievements_list:
+        Columns:
+            - id: INTEGER, primary key, not nullable
+            - name: VARCHAR, not nullable
+            - description: VARCHAR, not nullable
+            - verb: VARCHAR, not nullable
+            - code: VARCHAR, not nullable
+
+    achievements_awarded:
+        Columns:
+            - id: INTEGER, primary key, not nullable
+            - achievement_id: INTEGER, foreign key referencing achievements_list.id, not nullable
+            - pax_id: VARCHAR, not nullable
+            - date_awarded: DATE, not nullable
+            - created: DATETIME, not nullable, default current timestamp
+            - updated: DATETIME, not nullable, default current timestamp on update
+
+Variables:
+    insert_vals: List of dictionaries containing initial values to be inserted into the achievements_list table.
+
+Operations:
+    - Drop all existing tables and create new ones based on the defined schema.
+    - Insert initial values into the achievements_list table.
+    - Attempt to alter the 'aos' table to add a new column 'site_q_user_id'.
+    - Create or replace a view 'achievements_view' that joins users, achievements_awarded, and achievements_list tables.
+
+Usage:
+    This module is intended to be executed as a script to set up the achievements tables and initial data in the database.
+"""
+
+
 from sqlalchemy import Column, ForeignKey, MetaData, Table, func, select, text
 from sqlalchemy.dialects.mysql import DATE, DATETIME, INTEGER, VARCHAR, insert
 from sqlalchemy.exc import ProgrammingError
@@ -158,7 +197,7 @@ sql = select(
 ).select_from(u.join(aa, u.c.user_id == aa.c.pax_id).join(al, aa.c.achievement_id == al.c.id))
 
 view = (
-    f"""CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"""
+    f"CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"
 )
 
 with engine.begin() as cnxn:

@@ -33,14 +33,18 @@ def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: i
 
 def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine) -> Selectable[Tuple[str, str, str]]:
     """
-    Construct on-the-fly home regions. The current process is a UNION ALL over all regions together. By
-    considering the email address, a man that posts in many different regions will have many different
-    Slack IDs. However, presuming this man posts primarily in his home region, the number of
-    instances of posts in the home region will be greater than that in the DR region. There are edge
-    cases with no good solution. For instance, if a man moves, posts a few times and then stops. He'll
-    still reflect his home region being his former home region until the end of the year.
-    There's no perfect mechanism to account for this and some mis-assignments will occur.
+    Constructs a SQL query to build home region attendance data for multiple schemas.
+    This function filters out specific schemas and iterates over the remaining schemas to build
+    SQL queries that calculate user attendance data for different date ranges (30, 60, 90, 120 days).
+    The results are then combined into a single query using `union_all`.
+    Args:
+        schemas (pl.DataFrame): A DataFrame containing schema names.
+        metadata (MetaData): SQLAlchemy MetaData object for reflecting tables.
+        engine (Engine): SQLAlchemy Engine object for database connection.
+    Returns:
+        Selectable[Tuple[str, str, str]]: A SQLAlchemy selectable object representing the combined query.
     """
+
     queries = []
     schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development", "f3csra", "f3texarcana"]))
     for row in schemas.iter_rows():
@@ -88,7 +92,20 @@ def nation_sql(
     schemas: pl.DataFrame, engine: Engine, metadata: MetaData
 ) -> Selectable[Tuple[str, str, str, str, str, str, int, str]]:
     """
-    The main data set. This is what is used to build all achievement information.
+    Generates a SQL query to retrieve user attendance and beatdown information from multiple schemas.
+    Args:
+        schemas (pl.DataFrame): A DataFrame containing schema names to be queried.
+        engine (Engine): SQLAlchemy Engine object for database connection.
+        metadata (MetaData): SQLAlchemy MetaData object for schema reflection.
+    Returns:
+        Selectable[Tuple[str, str, str, str, str, str, int, str]]: A union of SQL queries for each schema,
+        selecting user email, user name, AO ID, AO name, beatdown date, Q flag, and backblast status.
+    The function filters out specific schemas and iterates over the remaining schemas to construct
+    SQL queries. It joins the 'users', 'bd_attendance', 'beatdowns', and 'aos' tables to gather
+    relevant information. The queries are combined using a union_all operation.
+    Raises:
+        SQLAlchemyError: If there is an error with SQLAlchemy operations.
+        Exception: For any other unexpected errors.
     """
     queries = []
     schemas = schemas.filter(~pl.col("schema_name").is_in(["f3devcommunity", "f3development", "f3csra", "f3texarcana"]))
@@ -139,7 +156,18 @@ def nation_sql(
 
 
 def the_priest(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Post for 25 Qsource lessons"""
+    """
+    Filters and processes a DataFrame to identify users who have completed at least 25 Qsource lessons.
+
+    Args:
+        df (pl.DataFrame): The input DataFrame containing user data.
+        bb_filter (pl.Expr): An expression to filter the DataFrame for a specific condition.
+        ao_filter (pl.Expr): Another expression to filter the DataFrame for a different condition.
+
+    Returns:
+        pl.DataFrame: A DataFrame with columns 'year', 'email', 'region', and 'date_awarded' for users who have completed at least 25 lessons.
+    """
+
     grouping = ["year", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -154,7 +182,20 @@ def the_priest(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.D
 
 
 def the_monk(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Post at 4 QSources in a month"""
+    """
+    Filters and processes a DataFrame to identify and award achievements based on specific criteria.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data to be processed.
+        bb_filter (pl.Expr): A filter expression to be applied to the DataFrame.
+        ao_filter (pl.Expr): Another filter expression to be applied to the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame containing the awarded achievements with columns:
+            - "month": The month extracted from the "date" column.
+            - "email": The email associated with the achievement.
+            - "region": The region associated with the achievement.
+            - "date_awarded": The maximum date from the filtered data, renamed from "date".
+    """
+
     grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -169,7 +210,20 @@ def the_monk(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 
 def leader_of_men(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Q at 4 beatdowns in a month"""
+    """
+    Filters and processes a DataFrame to identify leaders based on specific criteria.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data.
+        bb_filter (pl.Expr): A Polars expression used to filter the DataFrame.
+        ao_filter (pl.Expr): Another Polars expression used to filter the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame containing the filtered and processed data with columns:
+            - "month": The month extracted from the "date" column.
+            - "email": The email of the leader.
+            - "region": The region of the leader.
+            - "date_awarded": The maximum date from the "date" column for the group.
+    """
+
     grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -184,7 +238,20 @@ def leader_of_men(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> p
 
 
 def the_boss(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Q at 6 beatdowns in a month"""
+    """
+    Processes the given DataFrame to filter and aggregate data based on specific criteria.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data to be processed.
+        bb_filter (pl.Expr): A filter expression to be applied to the DataFrame.
+        ao_filter (pl.Expr): Another filter expression to be applied to the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame containing the aggregated results with columns:
+            - "month": The month extracted from the "date" column.
+            - "email": The email address.
+            - "region": The region.
+            - "date_awarded": The maximum date from the "date" column for the filtered and grouped data.
+    """
+
     grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -199,7 +266,20 @@ def the_boss(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 
 def hammer_not_nail(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Q at 6 beatdowns in a week"""
+    """
+    Filters and processes a DataFrame to identify and award achievements based on specific criteria.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data to be processed.
+        bb_filter (pl.Expr): A Polars expression used to filter the DataFrame.
+        ao_filter (pl.Expr): Another Polars expression used to filter the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame containing the awarded achievements with columns:
+            - "week": The week number extracted from the "date" column.
+            - "email": The email associated with the achievement.
+            - "region": The region associated with the achievement.
+            - "date_awarded": The maximum date when the achievement was awarded.
+    """
+
     grouping = ["week", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.week().alias("week"))
@@ -214,7 +294,17 @@ def hammer_not_nail(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) ->
 
 
 def cadre(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Q at 7 different AOs in a month"""
+    """
+    Processes the given DataFrame to filter and group data based on specific criteria,
+    and returns a DataFrame with the date awarded for each group.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data to be processed.
+        bb_filter (pl.Expr): A filter expression to be applied to the DataFrame.
+        ao_filter (pl.Expr): Another filter expression to be applied to the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame containing the grouped data with the date awarded for each group.
+    """
+
     grouping = ["month", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.month().alias("month"))
@@ -229,7 +319,18 @@ def cadre(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
 
 
 def el_presidente(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Q at 20 beatdowns in a year"""
+    """
+    Filters and processes a DataFrame to identify users who meet specific criteria
+    and awards them based on their activity.
+    Parameters:
+    df (pl.DataFrame): The input DataFrame containing user activity data.
+    bb_filter (pl.Expr): A filter expression to apply to the DataFrame.
+    ao_filter (pl.Expr): Another filter expression to apply to the DataFrame.
+    Returns:
+    pl.DataFrame: A DataFrame with columns 'year', 'email', 'region', and 'date_awarded'
+                  for users who meet the criteria.
+    """
+
     grouping = ["year", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -244,12 +345,16 @@ def el_presidente(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> p
 
 
 def posts(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Abstraction of 5 different achievements:
-    El Quatro: Post at 25 beatdowns in a year
-    Golden Boy: Post at 50 beatdowns in a year
-    Centurion: Post at 100 beatdowns in a year
-    Karate Kid: Post at 150 beatdowns in a year
-    Crazy Person: Post at 200 beatdowns in a year"""
+    """
+    Processes the given DataFrame by applying filters, grouping, and aggregating data.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data to be processed.
+        bb_filter (pl.Expr): The filter expression to be applied to the DataFrame.
+        ao_filter (pl.Expr): Another filter expression to be applied to the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame with the aggregated results, grouped by year, email, and region.
+    """
+
     grouping = ["year", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -261,7 +366,18 @@ def posts(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFr
 
 
 def six_pack(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Post at 6 beatdowns in a week"""
+    """
+    Filters and processes a DataFrame to identify users who have achieved a "six pack"
+    within a given week, based on specific filters.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing user data.
+        bb_filter (pl.Expr): A filter expression to apply to the DataFrame.
+        ao_filter (pl.Expr): Another filter expression to apply to the DataFrame.
+    Returns:
+        pl.DataFrame: A DataFrame with columns 'week', 'email', 'region', and 'date_awarded',
+                      containing users who have achieved a "six pack".
+    """
+
     grouping = ["week", "email", "region"]
     x = (
         df.with_columns(pl.col("date").dt.week().alias("week"))
@@ -276,7 +392,20 @@ def six_pack(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.Dat
 
 
 def hdtf(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFrame:
-    """Post 50 times at an AO"""
+    """
+    Processes the given DataFrame to filter, group, and aggregate data based on specified criteria.
+    Args:
+        df (pl.DataFrame): The input DataFrame containing the data to be processed.
+        bb_filter (pl.Expr): The filter expression to be applied to the 'bb' column.
+        ao_filter (pl.Expr): The filter expression to be applied to the 'ao' column.
+    Returns:
+        pl.DataFrame: A DataFrame containing the grouped and aggregated data with columns:
+            - 'year': The year extracted from the 'date' column.
+            - 'email': The email address.
+            - 'region': The region.
+            - 'date_awarded': The maximum date for the group.
+    """
+
     grouping = ["year", "email", "region", "ao_id"]
     x = (
         df.with_columns(pl.col("date").dt.year().alias("year"))
@@ -291,8 +420,20 @@ def hdtf(df: pl.DataFrame, bb_filter: pl.Expr, ao_filter: pl.Expr) -> pl.DataFra
 
 
 def load_to_database(schema: str, engine: Engine, metadata: MetaData, data_to_load: pl.DataFrame) -> None:
-    """After successfully sending Slack notifications, push the data to the `achievements_awarded` table.
-    The data frame data_to_load has already been filtered to include only new achievements."""
+    """
+    Load data into the database.
+    This function attempts to load data into a table named "achievements_awarded" within the specified schema.
+    If the table does not exist, it falls back to a table named "achievement_awarded". The data is loaded
+    using SQLAlchemy's insert functionality.
+    Args:
+        schema (str): The schema in which the table resides.
+        engine (Engine): The SQLAlchemy engine connected to the database.
+        metadata (MetaData): The SQLAlchemy MetaData object.
+        data_to_load (pl.DataFrame): The data to be loaded into the database, provided as a Polars DataFrame.
+    Raises:
+        NoSuchTableError: If neither "achievements_awarded" nor "achievement_awarded" tables are found.
+    """
+
     try:
         aa = Table("achievements_awarded", metadata, autoload_with=engine, schema=schema)
     except NoSuchTableError:
@@ -305,6 +446,24 @@ def load_to_database(schema: str, engine: Engine, metadata: MetaData, data_to_lo
 
 
 def main():
+    """
+    Main function to process and send achievement data to Slack channels for various regions.
+    This function performs the following steps:
+    1. Establishes a connection to the MySQL database.
+    2. Retrieves schema names from the "regions" table.
+    3. Builds SQL queries to fetch home regions and national beatdown data.
+    4. Filters and processes the data to create various achievement dataframes.
+    5. Iterates through each schema to:
+        a. Retrieve AO table and Slack channel information.
+        b. Fetch achievements awarded and achievements list data.
+        c. Filter and join dataframes for the specific region.
+        d. Send the processed data to Slack and load it into the database.
+    6. Logs the progress and errors encountered during the process.
+    7. Disposes of the database engine connection.
+    Raises:
+        NoSuchTableError: If a required table is not found in the schema.
+    """
+
     year = date.today().year
     engine = mysql_connection()
     metadata = MetaData()

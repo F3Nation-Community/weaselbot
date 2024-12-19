@@ -1,5 +1,25 @@
 #!/usr/bin/env /Users/jamessheldon/Library/Caches/pypoetry/virtualenvs/weaselbot-93dzw48B-py3.12/bin/python
 
+"""
+This module contains functions to generate and send Kotter reports for different regions using SQLAlchemy and Slack SDK.
+The main functionalities include:
+1. Generating subqueries to retrieve user attendance data.
+2. Building SQL queries to retrieve home region attendance data.
+3. Generating SQL queries to retrieve user attendance and beatdown information.
+4. Building a weekly report message for WeaselBot Site Q.
+5. Sending the generated report to specified site Q users via Slack.
+6. Logging the successful sending of Kotter reports to a Slack channel.
+Functions:
+    home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:
+    build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine) -> Selectable[Tuple[str, str, str]]:
+    nation_sql(schemas: pl.DataFrame, engine: Engine, metadata: MetaData) -> Selectable[Tuple[str, str, str, str, str, str]]:
+    build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl.DataFrame, siteq: str) -> str:
+    send_weaselbot_report(schema: str, client: WebClient, siteq_df: pl.DataFrame, df_mia: pl.DataFrame, df_lowq: pl.DataFrame, df_noq: pl.DataFrame, default_siteq: str) -> None:
+    slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient) -> None:
+    main() -> None:
+"""
+
+
 import logging
 from datetime import date, timedelta
 from typing import Tuple
@@ -17,10 +37,17 @@ from utils import mysql_connection, slack_client
 
 def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:
     """
-    Abstract the subquery needed for length of time to look back for considering the home region. This is
-    needed because there are many scenarios where a man could lapse in attending F3. Many different checks
-    should be considered before defaulting to the maximium date range.
+    Generates a subquery to retrieve user email and their attendance count within a specified date range.
+    Args:
+        u (Table): The user table.
+        a (Table): The attendance table.
+        b (Table): The bridge table linking attendance and another entity.
+        ao (Table): The table containing additional information about the entity.
+        date_range (int): The number of days to look back from the current date.
+    Returns:
+        Subquery[Tuple[str, int]]: A subquery object that returns tuples of user email and attendance count.
     """
+
     subquery = select(u.c.email, func.count(a.c.user_id).label("attendance"))
     subquery = subquery.select_from(
         u.join(a, a.c.user_id == u.c.user_id)
@@ -34,14 +61,19 @@ def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: i
 
 def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine) -> Selectable[Tuple[str, str, str]]:
     """
-    Construct on-the-fly home regions. The current process is a UNION ALL over all regions together. By
-    considering the email address, a man that posts in many different regions will have many different
-    Slack IDs. However, presuming this man posts primarily in his home region, the number of
-    instances of posts in the home region will be greater than that in the DR region. There are edge
-    cases with no good solution. For instance, if a man moves, posts a few times and then stops. He'll
-    still reflect his home region being his former home region until the end of the year.
-    There's no perfect mechanism to account for this and some mis-assignments will occur.
+    Builds a SQL query to retrieve home region attendance data for users across multiple schemas.
+    Args:
+        schemas (pl.DataFrame): A DataFrame containing schema names.
+        metadata (MetaData): SQLAlchemy MetaData object.
+        engine (Engine): SQLAlchemy Engine object.
+    Returns:
+        Selectable[Tuple[str, str, str]]: A union of SQL queries for each schema, selecting region, user email, user ID, and attendance.
+    The function iterates over each schema, constructs tables for users, attendance, beatdowns, and AOs, and builds subqueries for different date ranges.
+    It then constructs a main query to select the region, user email, user ID, and attendance, joining the necessary tables and subqueries.
+    The queries are combined using a union_all operation and returned.
+    If an error occurs while processing a schema, it logs the error and continues with the next schema.
     """
+
     queries = []
     for row in schemas.iter_rows():
         schema = row[0]
@@ -88,6 +120,19 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
 def nation_sql(
     schemas: pl.DataFrame, engine: Engine, metadata: MetaData
 ) -> Selectable[Tuple[str, str, str, str, str, str]]:
+    """
+    Generates a SQL query to retrieve user attendance and beatdown information from multiple schemas.
+    Args:
+        schemas (pl.DataFrame): A DataFrame containing schema names.
+        engine (Engine): SQLAlchemy Engine object for database connection.
+        metadata (MetaData): SQLAlchemy MetaData object for schema reflection.
+    Returns:
+        Selectable[Tuple[str, str, str, str, str, str]]: A union of SQL queries for each schema, selecting user email,
+        AO ID, AO name, beatdown date, and a flag indicating if the user was a Q (leader) for the beatdown.
+    The function iterates over each schema, constructs a SQL query to join the 'users', 'bd_attendance', 'beatdowns',
+    and 'aos' tables, and applies necessary filters. If an error occurs during query construction for a schema,
+    it logs the error and continues with the next schema.
+    """
     queries = []
     for row in schemas.iter_rows():
         schema = row[0]
@@ -135,16 +180,14 @@ def nation_sql(
 
 def build_kotter_report(df_posts: pl.DataFrame, df_qs: pl.DataFrame, df_noqs: pl.DataFrame, siteq: str) -> str:
     """
-    Build Slack SiteQ message
-
-    :param df_posts: All men that have not posted within the threshold
-    :type df_posts: pl.DataFrame
-    :param df_qs: All men that have not Q'ed within the threshold
-    :type df_qs: pl.DataFrame
-    :param siteq: The SlackID of the siteq for a given AO
-    :type siteq: str
-    :return: The multi-line string message to send across Slack to SiteQ and Weaselshaker
-    :rtype: str
+    Generates a weekly report message for WeaselBot Site Q.
+    Args:
+        df_posts (pl.DataFrame): DataFrame containing users who haven't posted in a while.
+        df_qs (pl.DataFrame): DataFrame containing users who haven't Q'd in a while.
+        df_noqs (pl.DataFrame): DataFrame containing users who have never Q'd.
+        siteq (str): Site Q identifier, used to determine the mention format.
+    Returns:
+        str: The generated report message.
     """
 
     try:
@@ -193,8 +236,17 @@ def send_weaselbot_report(
     default_siteq: str,
 ) -> None:
     """
-    Loop through site-qs that have PAX on the list and send the weaselbot report.
-    Then send the overall message.
+    Sends a report to specified site Q users and a default site Q user via Slack.
+    Parameters:
+    schema (str): The schema name for logging purposes.
+    client (WebClient): The Slack WebClient instance used to send messages.
+    siteq_df (pl.DataFrame): DataFrame containing site Q user IDs.
+    df_mia (pl.DataFrame): DataFrame containing MIA data.
+    df_lowq (pl.DataFrame): DataFrame containing low quality data.
+    df_noq (pl.DataFrame): DataFrame containing no quality data.
+    default_siteq (str): The default site Q user ID to send the report to if not listed in siteq_df.
+    Returns:
+    None
     """
     for row in siteq_df.iter_rows(named=True):
         siteq = row["site_q_user_id"]
@@ -234,9 +286,16 @@ def send_weaselbot_report(
 
 def slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient) -> None:
     """
-    Send a message to the paxminer_logs channel notifying everyone that the Kotter Report
-    has been run.
+    Sends a message to a Slack channel indicating that kotter reports have been successfully sent.
+    Args:
+        schema (str): The database schema to use.
+        engine (Engine): The SQLAlchemy engine connected to the database.
+        metadata (MetaData): The SQLAlchemy MetaData object.
+        client (WebClient): The Slack WebClient used to send messages.
+    Raises:
+        SlackApiError: If there is an error sending the message to Slack.
     """
+
     ao = Table("aos", metadata, autoload_with=engine, schema=schema)
     with engine.begin() as cnxn:
         paxminer_log_channel = cnxn.execute(select(ao.c.channel_id).where(ao.c.ao == "paxminer_logs")).scalar()
@@ -255,6 +314,24 @@ def slack_log(schema: str, engine: Engine, metadata: MetaData, client: WebClient
 
 
 def main():
+    """
+    Main function to generate and send Kotter reports for different regions.
+    This function performs the following steps:
+    1. Sets up logging configuration.
+    2. Establishes a connection to the MySQL database.
+    3. Retrieves the list of schemas to process.
+    4. Builds SQL queries for home regions and national data.
+    5. Reads data from the database and processes it to generate dataframes.
+    6. Iterates through each schema to generate specific reports.
+    7. Filters and processes data to identify men who haven't posted or Q'ed in a while.
+    8. Sends the generated reports to Slack using the Weaselbot.
+    The function handles exceptions for schemas that are not set up for Kotter reports and logs errors accordingly.
+    Note: This function assumes the existence of several helper functions such as `mysql_connection`,
+    `build_home_regions`, `nation_sql`, `slack_client`, `send_weaselbot_report`, and `slack_log`.
+    Raises:
+        Exception: If there is an error in processing a schema, it logs the error and continues with the next schema.
+    """
+
     logging.basicConfig(
         format="%(asctime)s [%(levelname)s]:%(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
     )
@@ -321,7 +398,6 @@ def main():
                 pl.col("date").is_between(
                     date.today() + timedelta(weeks=-REMINDER_WEEKS), date.today() + timedelta(weeks=-NO_POST_THRESHOLD)
                 )
-                # < date.today() + timedelta(weeks=-NO_POST_THRESHOLD)
             )
             .join(siteq_df, how="left", on="home_ao", coalesce=True)
             .drop("email")

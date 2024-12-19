@@ -1,6 +1,28 @@
-"""General purpose utilites for Weaselbot. Broadly speaking, if there's a effort to merge all
-these different tools together, this module would be a landing spot for all those shared
-methods.
+"""
+This module provides utility functions for connecting to MySQL, interacting with Slack, and processing
+achievement data.
+
+Functions:
+    mysql_connection() -> Engine:
+        Connect to MySQL. This involves loading environment variables from file.
+
+    slack_client(token: str) -> WebClient:
+        Instantiate Slack Web client.
+
+    _check_for_new_results(schema: str, year: int, idx: int, df: pl.DataFrame, awarded: pl.DataFrame) -> pl.DataFrame:
+        Check for new earned achievements in the data. By looking at the current achievement number and comparing it
+        against what we've already seen, determine if there are new achievements to issue. If there are no new
+        achievements, continue to the next one.
+
+    ordinal_suffix(n: int) -> str:
+        Logic to add the ordinal suffix to the numbers. i.e. 3rd, 9th, 1st, etc...
+
+    send_to_slack(
+
+        Take the data and, after comparing it to the already-awarded achievements, find what hasn't been awarded.
+        This also makes comparisons to each region's `awards_list` table. Some regions have customized it to exclude
+        some base awards and include some custom ones. Custom awards are not taken into account. They must be
+        separately addressed.
 """
 
 import logging
@@ -19,8 +41,14 @@ from sqlalchemy.engine import Engine
 
 def mysql_connection() -> Engine:
     """
-    Connect to MySQL. This involves loading environment variables from file
+    Establishes a connection to a MySQL database using environment variables.
+    The function changes the current working directory to the directory of the script,
+    loads environment variables from a .env file, and creates a SQLAlchemy engine
+    for connecting to a MySQL database using the mysqlconnector driver.
+    Returns:
+        Engine: A SQLAlchemy Engine instance connected to the MySQL database.
     """
+
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     load_dotenv()
     engine = create_engine(
@@ -94,7 +122,7 @@ def _check_for_new_results(schema: str, year: int, idx: int, df: pl.DataFrame, a
 
 def ordinal_suffix(n: int) -> str:
     """
-    Logic to add the orginal suffix to the numbers.
+    Logic to add the ordinal suffix to the numbers.
     i.e. 3rd, 9th, 1st, etc...
     """
     if 11 <= (n % 100) <= 13:
