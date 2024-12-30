@@ -48,15 +48,17 @@ def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: i
         Subquery[Tuple[str, int]]: A subquery object that returns tuples of user email and attendance count.
     """
 
-    subquery = select(u.c.email, func.count(a.c.user_id).label("attendance"))
-    subquery = subquery.select_from(
-        u.join(a, a.c.user_id == u.c.user_id)
-        .join(b, and_(a.c.q_user_id == b.c.q_user_id, a.c.ao_id == b.c.ao_id, a.c.date == b.c.bd_date))
-        .join(ao, b.c.ao_id == ao.c.channel_id)
+    return (
+        select(u.c.email, func.count(a.c.user_id).label("attendance"))
+        .select_from(
+            u.join(a, a.c.user_id == u.c.user_id)
+            .join(b, and_(a.c.q_user_id == b.c.q_user_id, a.c.ao_id == b.c.ao_id, a.c.date == b.c.bd_date))
+            .join(ao, b.c.ao_id == ao.c.channel_id)
+        )
+        .where(func.datediff(func.curdate(), b.c.bd_date) < date_range)
+        .group_by(u.c.email)
+        .subquery()
     )
-    subquery = subquery.where(func.datediff(func.curdate(), b.c.bd_date) < date_range)
-    subquery = subquery.group_by(u.c.email).subquery()
-    return subquery
 
 
 def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine) -> Selectable[Tuple[str, str, str]]:
@@ -85,29 +87,31 @@ def build_home_regions(schemas: pl.DataFrame, metadata: MetaData, engine: Engine
 
             s1, s2, s3, s4 = (home_region_sub_query(u, a, b, ao, date_range) for date_range in (30, 60, 90, 120))
 
-            sql = select(
-                literal_column(f"'{schema}'").label("region"),
-                u.c.email,
-                u.c.user_id,
-                case(
-                    (s1.c.attendance != None, s1.c.attendance),
-                    (s2.c.attendance != None, s2.c.attendance),
-                    (s3.c.attendance != None, s3.c.attendance),
-                    (s4.c.attendance != None, s4.c.attendance),
-                    else_=func.count(a.c.user_id),
-                ).label("attendance"),
+            sql = (
+                select(
+                    literal_column(f"'{schema}'").label("region"),
+                    u.c.email,
+                    u.c.user_id,
+                    case(
+                        (s1.c.attendance.is_not(None), s1.c.attendance),
+                        (s2.c.attendance.is_not(None), s2.c.attendance),
+                        (s3.c.attendance.is_not(None), s3.c.attendance),
+                        (s4.c.attendance.is_not(None), s4.c.attendance),
+                        else_=func.count(a.c.user_id),
+                    ).label("attendance"),
+                )
+                .select_from(
+                    u.join(a, a.c.user_id == u.c.user_id)
+                    .join(b, and_(a.c.q_user_id == b.c.q_user_id, a.c.ao_id == b.c.ao_id, a.c.date == b.c.bd_date))
+                    .join(ao, b.c.ao_id == ao.c.channel_id)
+                    .outerjoin(s1, u.c.email == s1.c.email)
+                    .outerjoin(s2, u.c.email == s2.c.email)
+                    .outerjoin(s3, u.c.email == s3.c.email)
+                    .outerjoin(s4, u.c.email == s4.c.email)
+                )
+                .where(func.year(b.c.bd_date) == func.year(func.curdate()))
+                .group_by(literal_column(f"'{schema}'").label("region"), u.c.email, u.c.user_id)
             )
-            sql = sql.select_from(
-                u.join(a, a.c.user_id == u.c.user_id)
-                .join(b, and_(a.c.q_user_id == b.c.q_user_id, a.c.ao_id == b.c.ao_id, a.c.date == b.c.bd_date))
-                .join(ao, b.c.ao_id == ao.c.channel_id)
-                .outerjoin(s1, u.c.email == s1.c.email)
-                .outerjoin(s2, u.c.email == s2.c.email)
-                .outerjoin(s3, u.c.email == s3.c.email)
-                .outerjoin(s4, u.c.email == s4.c.email)
-            )
-            sql = sql.where(func.year(b.c.bd_date) == func.year(func.curdate()))
-            sql = sql.group_by(literal_column(f"'{schema}'").label("region"), u.c.email, u.c.user_id)
             queries.append(sql)
         except SQLAlchemyError as e:
             logging.error(f"Schema {schema} error: {e}")
@@ -142,32 +146,35 @@ def nation_sql(
             b = Table("beatdowns", metadata, autoload_with=engine, schema=schema)
             ao = Table("aos", metadata, autoload_with=engine, schema=schema)
 
-            sql = select(
-                u.c.email,
-                a.c.ao_id,
-                ao.c.ao.label("ao"),
-                b.c.bd_date.label("date"),
-                case((or_(a.c.user_id == b.c.q_user_id, a.c.user_id == b.c.coq_user_id), 1), else_=0).label("q_flag"),
-            )
-            sql = sql.select_from(
-                u.join(a, a.c.user_id == u.c.user_id)
-                .join(
-                    b,
-                    and_(
-                        or_(a.c.q_user_id == b.c.q_user_id, a.c.q_user_id == b.c.coq_user_id),
-                        a.c.ao_id == b.c.ao_id,
-                        a.c.date == b.c.bd_date,
+            sql = (
+                select(
+                    u.c.email,
+                    a.c.ao_id,
+                    ao.c.ao.label("ao"),
+                    b.c.bd_date.label("date"),
+                    case((or_(a.c.user_id == b.c.q_user_id, a.c.user_id == b.c.coq_user_id), 1), else_=0).label(
+                        "q_flag"
                     ),
                 )
-                .join(ao, b.c.ao_id == ao.c.channel_id)
-            )
-
-            sql = sql.where(
-                b.c.bd_date > 0,
-                b.c.bd_date <= func.curdate(),
-                u.c.email != "none",
-                u.c.user_name != "PAXminer",
-                b.c.q_user_id != None,
+                .select_from(
+                    u.join(a, a.c.user_id == u.c.user_id)
+                    .join(
+                        b,
+                        and_(
+                            or_(a.c.q_user_id == b.c.q_user_id, a.c.q_user_id == b.c.coq_user_id),
+                            a.c.ao_id == b.c.ao_id,
+                            a.c.date == b.c.bd_date,
+                        ),
+                    )
+                    .join(ao, b.c.ao_id == ao.c.channel_id)
+                )
+                .where(
+                    b.c.bd_date > 0,
+                    b.c.bd_date <= func.curdate(),
+                    u.c.email.is_not("none"),
+                    u.c.user_name.is_not("PAXminer"),
+                    b.c.q_user_id.is_not(None),
+                )
             )
             queries.append(sql)
         except SQLAlchemyError as e:
