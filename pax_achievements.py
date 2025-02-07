@@ -1,4 +1,4 @@
-#!/usr/bin/env /Users/jamessheldon/Library/Caches/pypoetry/virtualenvs/weaselbot-93dzw48B-py3.12/bin/python
+#!/usr/bin/env ./.venv/bin/python
 
 import logging
 from datetime import date

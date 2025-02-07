@@ -1,4 +1,4 @@
-#!/usr/bin/env /Users/jamessheldon/Library/Caches/pypoetry/virtualenvs/weaselbot-93dzw48B-py3.12/bin/python
+#!/usr/bin/env ./.venv/bin/python
 
 """
 This module contains functions to generate and send Kotter reports for different regions using SQLAlchemy and Slack SDK.
@@ -171,8 +171,8 @@ def nation_sql(
                 .where(
                     b.c.bd_date > 0,
                     b.c.bd_date <= func.curdate(),
-                    u.c.email.is_not("none"),
-                    u.c.user_name.is_not("PAXminer"),
+                    u.c.email != "none",
+                    u.c.user_name != "PAXminer",
                     b.c.q_user_id.is_not(None),
                 )
             )
