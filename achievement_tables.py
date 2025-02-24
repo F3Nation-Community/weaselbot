@@ -46,7 +46,7 @@ from utils import mysql_connection
 engine = mysql_connection()
 metadata = MetaData()
 
-schema = "f3naturecoast"
+schema = "f3horizon"
 MYSQL_ENGINE = "InnoDB"
 MYSQL_CHARSET = "utf8mb3"
 MYSQL_COLLATE = "utf8mb3_general_ci"

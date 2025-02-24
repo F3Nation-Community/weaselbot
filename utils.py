@@ -132,6 +132,56 @@ def ordinal_suffix(n: int) -> str:
     return suffix
 
 
+def _get_achievement_counts(awarded: pl.DataFrame, year: int) -> dict[str, Counter]:
+    """Get achievement counts for each pax in the current year."""
+    counts = defaultdict(Counter)
+    for r in (
+        awarded.filter(pl.col("date_awarded").dt.year() == year)
+        .group_by(["pax_id", "achievement_id"])
+        .agg(pl.col("id").count().alias("count"))
+        .iter_rows(named=True)
+    ):
+        counts[r["pax_id"]].update({r["achievement_id"]: r["count"]})
+    return counts
+
+
+def _send_slack_message(client: WebClient, channel: str, message: str, add_reaction: bool = True) -> None:
+    """Send a message to Slack with retry logic for rate limiting."""
+    try:
+        response = client.chat_postMessage(channel=channel, text=message, link_names=True)
+        if add_reaction:
+            client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
+    except SlackApiError as e:
+        if e.response.status_code == 429:
+            delay = int(e.response.headers["Retry-After"])
+            logging.info(f"Pausing Slack notifications for {delay} seconds.")
+            time.sleep(delay)
+            response = client.chat_postMessage(channel=channel, text=message, link_names=True)
+            if add_reaction:
+                client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
+        else:
+            raise
+
+
+def _format_achievement_message(
+    record: tuple, new_award_name: str, new_award_verb: str, total_achievements: int, total_idx_achievements: int
+) -> str:
+    """Format the achievement message for Slack."""
+    ending = ordinal_suffix(total_idx_achievements)
+    if record[3] == 13 and total_idx_achievements > 1:
+        return f"Nice work brother. You just earned 6 pack for the {total_idx_achievements}{ending} time this year!"
+
+    return "".join(
+        [
+            f"Congrats to our man <@{record[3]}>! ",
+            f"He just unlocked the achievement *{new_award_name}* for {new_award_verb} ",
+            f"which he earned on {record[2]}. ",
+            f"This is achievement #{total_achievements} for <@{record[3]}> and the {total_idx_achievements}{ending} ",
+            "time this year he's earned this award. Keep up the good work!",
+        ]
+    )
+
+
 def send_to_slack(
     schema: str,
     token: str,
@@ -142,123 +192,49 @@ def send_to_slack(
     dfs: list[pl.DataFrame],
     paxminer_log_channel: str,
 ) -> pl.DataFrame:
-    """
-    Take the region data set and for new records, write them to the `achievements_awarded` table along with
-    sending the notification to Slack.
-
-    Take the data and, after comparing it to the already-awarded achievements, find what hasn't been
-    awarded. This also makes comparisons to each regions `awards_list` table. Some regions have customized it
-    to exclude some base awards and include some custom ones. Custom awards are not taken into account. They must
-    be separately addressed.
-
-    Loop over each award and grant as necessary. Then push a Slack notification to both the region Slack channel
-    and the person running this script so that there's a record of the run.
-
-    :param row: a key: value named tuple.
-    :type row: namedtuple produced by pandas' intertuples method
-    :param year: the 4-digit current year
-    :type year: int
-    :param awarded: pandas dataframe of previously awarded achievements
-    :type awarded: pl.DataFrame
-    :param awards: dataframe with all achievable awards
-    :type awards: pl.DataFrame
-    :param dfs: collection of all regional data. Each dataframe is the data for one specific award
-    :type dfs: list of pl.DataFrame objects
-    :return: The final set of data that reflects news awarded achievements and needs to be appended to the region
-    `awarded` table.
-    :rtype: pl.DataFrame
-    """
-
+    """Process and send achievement notifications to Slack."""
     client = slack_client(token)
     data_to_upload = pl.DataFrame()
-
-    # Instantiate a counter for each pax. This is how we'll track total award earned counts between
-    # what they already have (historcial) and what they're earning right now.
-    _d = defaultdict(Counter)
-    for r in (
-        awarded.filter(pl.col("date_awarded").dt.year() == year)
-        .group_by(["pax_id", "achievement_id"])
-        .agg(pl.col("id").count().alias("count"))
-        .iter_rows(named=True)
-    ):
-        _d[r["pax_id"]].update({r["achievement_id"]: r["count"]})
+    achievement_counts = _get_achievement_counts(awarded, year)
 
     for idx, df in enumerate(dfs, start=1):
         if df.is_empty():
-            # no one anywhere got this award. No sense wasting resources on it.
             try:
-                logging.info(
-                    f"No data in {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]} for {schema}"
-                )
+                award_name = awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]
+                logging.info(f"No data in {award_name} for {schema}")
             except IndexError:
                 logging.error(f"{schema} doesn't have achievement {idx} in their awards_list table.")
             continue
+
         new_data = _check_for_new_results(schema, year, idx, df, awarded)
-        if new_data.is_empty():
-            # there is data but nothing new since the last run. Carry on.
-            try:
-                logging.info(
-                    f"{schema} has data but nothing new for {awards.filter(pl.col("id") == idx).select(pl.col("name")).to_series().to_list()[0]}."
-                )
-            except IndexError:
-                logging.error(f"{schema} has new data but doesn't track achievement_id {idx}.")
+        if new_data.is_empty() or idx not in awards.select(pl.col("id")).to_series().to_list():
             continue
 
-        # we got this far so there are achievements to award.
-        if idx not in awards.select(pl.col("id")).to_series().to_list():
-            logging.error(f"{schema} doesn't track achievement_id {idx}.")
-            continue
-
-        # Loop over each record in `new_data`, assiging as appropriate
+        # Process new achievements
         for record in new_data.iter_rows():
-            _d[record[3]].update({idx: 1})
-            new_award_name = awards.filter(pl.col("id") == idx).select(pl.first("name")).item()
-            new_award_verb = awards.filter(pl.col("id") == idx).select(pl.first("verb")).item()
-            total_achievements = _d[record[3]].total()
-            total_idx_achievements = _d[record[3]][idx]
-            ending = ordinal_suffix(total_idx_achievements)
-
-            sMessage = [
-                f"Congrats to our man <@{record[3]}>! ",
-                f"He just unlocked the achievement *{new_award_name}* for {new_award_verb} ",
-                f"which he earned on {record[2]}. "
-                f"This is achievement #{total_achievements} for <@{record[3]}> and the {total_idx_achievements}{ending} ",
-                "time this year he's earned this award. Keep up the good work!",
-            ]
-            sMessage = "".join(sMessage)
-            if idx == 13 and total_idx_achievements > 1:
-                # adding new logic for 6 pack. Turns out, this weekly achievement makes the achievements
-                # channel too noisy in regions with lots of men that live and breathe F3. This block will
-                # be triggered for only 6 pack (idx == 13) and will only run if the man has already earned
-                # 6 pack this year.
-                # Instead of posting to the achievements channel, this will be a DM to that man.
-                sMessage = f"Nice work brother. You just earned 6 pack for the {total_idx_achievements}{ending} time this year!"
-                try:
-                    response = client.chat_postMessage(channel=record[3], text=sMessage)
-                    client.reactions_add(channel=record[3], name="fire", timestamp=response.get("ts"))
-                    logging.info(f"Successfully sent slack DM to {record[3]} for achievement {idx}")
-                except SlackApiError as e:
-                    logging.error(e.response["error"])
-                continue
+            achievement_counts[record[3]].update({idx: 1})
             try:
-                response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
-                client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
-                logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
-            except SlackApiError as e:
-                if e.response.status_code == 429:
-                    delay = int(e.response.headers["Retry-After"])
-                    logging.info(f"Pausing Slack notifications for {delay} seconds.")
-                    time.sleep(delay)
-                    response = client.chat_postMessage(channel=channel, text=sMessage, link_names=True)
-                    client.reactions_add(channel=channel, name="fire", timestamp=response.get("ts"))
-                    logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
-                else:
-                    logging.error(
-                        f"Received the following error when posting for region {schema} for achievement {new_award_name}"
-                    )
-                    logging.error(e)
-                    continue
+                new_award_name = awards.filter(pl.col("id") == idx).select(pl.first("name")).item()
+                new_award_verb = awards.filter(pl.col("id") == idx).select(pl.first("verb")).item()
 
+                message = _format_achievement_message(
+                    record,
+                    new_award_name,
+                    new_award_verb,
+                    achievement_counts[record[3]].total(),
+                    achievement_counts[record[3]][idx],
+                )
+
+                # Send to direct message for 6-pack achievements after first one
+                target_channel = record[3] if idx == 13 and achievement_counts[record[3]][idx] > 1 else channel
+                _send_slack_message(client, target_channel, message)
+                logging.info(f"Successfully sent slack message for {record[3]} and achievement {idx}")
+
+            except SlackApiError as e:
+                logging.error(f"Error sending achievement {new_award_name} for {schema}: {str(e)}")
+                continue
+
+        # Update data to upload
         data_to_upload = pl.concat(
             [
                 data_to_upload,
@@ -267,20 +243,22 @@ def send_to_slack(
                 ),
             ]
         )
-        logging.info(f"Sent all slack messages to {schema} for achievement {idx}")
 
+    # Send summary message
     try:
-        client.chat_postMessage(
-            channel=paxminer_log_channel,
-            text=f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements.",
+        summary = (
+            f"Successfully ran today's Weaselbot achievements patch. Sent {data_to_upload.shape[0]} new achievements."
         )
+        _send_slack_message(client, paxminer_log_channel, summary, add_reaction=False)
     except SlackApiError as e:
-        if e.response.get("error") == "invalid_aruments":
-            error_message = e.response.get("response_metadata").get("messages")
-        else:
-            error_message = e.response.get("error")
-        logging.error(f"Error sending Weaselbot runtime message to {paxminer_log_channel} for {schema}: {error_message}")
+        error_message = (
+            e.response.get("response_metadata", {}).get("messages")
+            if e.response.get("error") == "invalid_arguments"
+            else e.response.get("error")
+        )
+        logging.error(
+            f"Error sending Weaselbot runtime message to {paxminer_log_channel} for {schema}: {error_message}"
+        )
 
     logging.info(f"Sent all achievement Slack messages to {schema}")
-
     return data_to_upload
