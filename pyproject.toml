@@ -6,7 +6,7 @@ authors = [
     { name = "Evan Petzoldt", email = "evan.petzoldt@protonmail.com" },
     { name = "Jim Sheldon", email = "sumo@f3chicago.com" },
 ]
-requires-python = "~=3.13"
+requires-python = ">=3.13"
 readme = "README.md"
 dependencies = [
     "ruff>=0.9.5",
