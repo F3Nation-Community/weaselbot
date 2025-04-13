@@ -32,7 +32,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import Selectable, and_, case, func, literal_column, or_, select, union_all
 
-from utils import mysql_connection, slack_client
+from weaselbot.utils import mysql_connection, slack_client
 
 
 def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:

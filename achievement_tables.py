@@ -41,7 +41,7 @@ from sqlalchemy import Column, ForeignKey, MetaData, Table, func, select, text
 from sqlalchemy.dialects.mysql import DATE, DATETIME, INTEGER, VARCHAR, insert
 from sqlalchemy.exc import ProgrammingError
 
-from utils import mysql_connection
+from weaselbot.utils import mysql_connection
 
 engine = mysql_connection()
 metadata = MetaData()
