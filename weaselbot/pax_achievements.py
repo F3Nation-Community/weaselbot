@@ -1,5 +1,3 @@
-#!/usr/bin/env ./.venv/bin/python
-
 import logging
 from datetime import date
 from typing import Tuple
@@ -11,7 +9,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import NoSuchTableError, SQLAlchemyError
 from sqlalchemy.sql import and_, case, func, literal_column, or_, select, union_all
 
-from weaselbot.utils import mysql_connection, send_to_slack
+from .utils import mysql_connection, send_to_slack
 
 
 def home_region_sub_query(u: Table, a: Table, b: Table, ao: Table, date_range: int) -> Subquery[Tuple[str, int]]:

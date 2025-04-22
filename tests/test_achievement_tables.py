@@ -4,10 +4,8 @@ from sqlalchemy import MetaData, Table, Column
 from sqlalchemy.dialects.mysql import VARCHAR
 from sqlalchemy.sql import text
 
-# filepath: test_achievement_tables.py
 
-
-from weaselbot.achievement_tables import (
+from ..weaselbot.achievement_tables import (
     create_table,
     achievements_list_columns,
     achievements_awarded_columns,
@@ -77,7 +75,7 @@ def test_insert_vals_structure():
         assert set(val.keys()) == required_keys
         assert all(isinstance(v, str) for v in val.values())
 
-@patch('weaselbot.achievement_tables.mysql_connection')
+@patch('weaselbot.weaselbot.achievement_tables.mysql_connection')
 def test_database_operations(mock_engine):
     """Test database operations workflow"""
     # Set up mock connection and returns
@@ -101,7 +99,7 @@ def test_database_operations(mock_engine):
     for actual, expected in zip(actual_calls, expected_calls):
         assert str(actual.args[0]) == str(expected.args[0])
 
-@patch('weaselbot.achievement_tables.mysql_connection')
+@patch('weaselbot.weaselbot.achievement_tables.mysql_connection')
 def test_view_creation(mock_engine):
     """Test view creation SQL"""
     # Set up mock connection and returns
@@ -125,6 +123,7 @@ def test_view_creation(mock_engine):
     assert "achievements_list" in actual_sql
     assert "achievements_awarded" in actual_sql
 
+@patch('weaselbot.weaselbot.achievement_tables.mysql_connection')
 def test_error_handling(mock_engine):
     """Test error handling for database operations"""
     connection = mock_engine.begin().__enter__()

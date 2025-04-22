@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy import MetaData, Table, Column, String, Integer, DateTime, select
 from sqlalchemy.sql import text
 
-from weaselbot.pax_achievements import (
+from ..weaselbot.pax_achievements import (
     home_region_sub_query,
     build_home_regions,
     the_priest,
@@ -148,7 +148,7 @@ def test_hdtf_achievement(sample_data):
     assert 'email' in result.columns
     assert 'region' in result.columns
 
-@patch('weaselbot.achievement_tables.mysql_connection')
+@patch('weaselbot.weaselbot.achievement_tables.mysql_connection')
 def test_load_to_database(mock_conn, mock_engine, mock_metadata):
     """Test database loading functionality"""
     schema = 'test_schema'
