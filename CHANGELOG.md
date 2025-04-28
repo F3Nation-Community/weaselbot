@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.1] - 2025-04-28
+
+### 🚀 Features
+
+- *(changelog)* Added changelog
+
 ## [1.6.0] - 2025-04-22
 
 ### 🚀 Features
