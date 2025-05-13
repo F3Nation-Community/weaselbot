@@ -36,7 +36,6 @@ Usage:
     This module is intended to be executed as a script to set up the achievements tables and initial data in the database.
 """
 
-
 from sqlalchemy import Column, ForeignKey, MetaData, Table, func, select, text
 from sqlalchemy.dialects.mysql import DATE, DATETIME, INTEGER, VARCHAR, insert
 from sqlalchemy.exc import ProgrammingError
@@ -46,12 +45,13 @@ from .utils import mysql_connection
 engine = mysql_connection()
 metadata = MetaData()
 
-schema = "f3stlcountyline"
+schema = "f3paulding"
 MYSQL_ENGINE = "InnoDB"
 MYSQL_CHARSET = "utf8mb3"
 MYSQL_COLLATE = "utf8mb3_general_ci"
 VARCHAR_CHARSET = "utf8"
 VARCHAR_LENGTH = 255
+
 
 def create_table(name, columns, metadata, schema):
     return Table(
@@ -63,6 +63,7 @@ def create_table(name, columns, metadata, schema):
         mysql_collate=MYSQL_COLLATE,
         schema=schema,
     )
+
 
 achievements_list_columns = [
     Column("id", INTEGER(), primary_key=True, nullable=False),
@@ -196,9 +197,7 @@ sql = select(
     aa.c.date_awarded,
 ).select_from(u.join(aa, u.c.user_id == aa.c.pax_id).join(al, aa.c.achievement_id == al.c.id))
 
-view = (
-    f"CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"
-)
+view = f"CREATE OR REPLACE ALGORITHM = UNDEFINED VIEW {schema}.achievements_view AS {sql.compile(engine).__str__()};"
 
 with engine.begin() as cnxn:
     cnxn.execute(text(view))

@@ -19,7 +19,6 @@ Functions:
     main() -> None:
 """
 
-
 import logging
 from datetime import date, timedelta
 from typing import Tuple
